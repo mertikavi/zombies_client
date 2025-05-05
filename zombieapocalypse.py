@@ -18,6 +18,30 @@ import pygame
 import random
 import sys
 import math
+from pypresence import Presence
+import time
+
+# Discord RPC ayarları
+CLIENT_ID = '1369068337262235688'  # Discord Developer Portal'dan alınacak
+try:
+    RPC = Presence(CLIENT_ID)
+    RPC.connect()
+    discord_connected = True
+except:
+    discord_connected = False
+
+def update_discord_presence(wave=0, zombies_killed=0, game_state="In Menu"):
+    if discord_connected:
+        try:
+            RPC.update(
+                state= f"Wave {wave} | Killed: {zombies_killed}" if wave != 0 else None,
+                details=game_state,
+                large_image="logo_short",
+                large_text="Project_GG",
+                start=int(time.time())
+            )
+        except:
+            pass
 
 # Renkler ve renk seçenekleri
 WHITE = (255, 255, 255)
@@ -421,9 +445,11 @@ def show_main_menu(is_paused=False):
     # Background müziğini başlat
     if not is_paused:  # Sadece oyun duraklatılmamışsa çal
         background_channel.play(background_music, -1)  # -1 sonsuz döngü için
+        update_discord_presence(game_state="In Menu")  # Menüde olduğumuzu Discord'da göster
     
     if is_paused:
         options = ["Devam Et", "Ayarlar", "Ana Menüye Dön"]
+        update_discord_presence(game_state="Game Paused")  # Oyunun duraklatıldığını Discord'da göster
     else:
         options = ["Oyna", "Ayarlar", "Çıkış"]
     
@@ -1285,6 +1311,9 @@ def game_loop():
             ammo_surface = small_font.render(ammo_text, True, WHITE)
             screen.blit(ammo_surface, (inventory_x, y_pos + 50))  # Silah modelinin 50 piksel altına
 
+        # Discord Rich Presence güncelle
+        update_discord_presence(wave=wave, zombies_killed=total_zombies_killed, game_state="Playing")
+
         # Game Over ekranına toplam öldürülen zombi sayısını gönder
         if game_over:
             show_game_over(wave, total_zombies_killed)
@@ -1298,6 +1327,8 @@ def game_loop():
         pygame.display.update()
         clock.tick(60)
 
+    # Game Over durumunda Discord Rich Presence güncelle
+    update_discord_presence(wave=wave, zombies_killed=total_zombies_killed, game_state="Game Over")
     show_game_over(wave, total_zombies_killed)
     return
 
