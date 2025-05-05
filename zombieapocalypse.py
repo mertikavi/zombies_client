@@ -39,7 +39,7 @@ HEALTH_RED = (220, 20, 60)  # Can barı kırmızı kısmı
 # Pygame'i başlat
 pygame.init()
 pygame.mixer.init()  # Ses sistemini başlat
-pygame.mixer.set_num_channels(10)  # 10 kanal ayarla (intro müziği için +1)
+pygame.mixer.set_num_channels(11)  # 11 kanal ayarla (background müziği için +1)
 
 # Ekran boyutlarını kullanıcının monitör çözünürlüğüne göre al
 info = pygame.display.Info()
@@ -129,6 +129,7 @@ def draw_crosshair(surface, x, y, size=10, color=WHITE):
 pygame.display.flip()
 
 # Ses kanallarını ayarla
+background_channel = pygame.mixer.Channel(10)  # Yeni kanal (background müziği için)
 intro_channel = pygame.mixer.Channel(9)  # Yeni kanal (intro müziği için)
 walk_channel = pygame.mixer.Channel(0)
 pistol_channel = pygame.mixer.Channel(1)
@@ -141,6 +142,7 @@ knife_air_channel = pygame.mixer.Channel(7)  # Yeni kanal
 knife_damage_channel = pygame.mixer.Channel(8)  # Yeni kanal
 
 # Ses efektlerini yükle ve ses düzeylerini ayarla
+background_music = pygame.mixer.Sound("./sound/background.mp3")  # Background müziğini yükle
 intro_music = pygame.mixer.Sound("./sound/intro.mp3")  # İntro müziğini yükle
 walk_sound = pygame.mixer.Sound("./sound/walk.mp3")
 pistol_sound = pygame.mixer.Sound("./sound/pistol.mp3")
@@ -153,6 +155,7 @@ knife_air_sound = pygame.mixer.Sound("./sound/knife_air.mp3")  # Yeni ses
 knife_damage_sound = pygame.mixer.Sound("./sound/knife_damage.mp3")  # Yeni ses
 
 # Ses düzeylerini %50'ye ayarla
+background_music.set_volume(0.3)  # Background müziği ses seviyesi biraz daha düşük
 intro_music.set_volume(0.5)  # İntro müziği ses seviyesi
 walk_sound.set_volume(0.5)
 pistol_sound.set_volume(0.5)
@@ -415,6 +418,10 @@ def show_main_menu(is_paused=False):
     menu_state = "main"  # main, settings
     selected_option = 0
     
+    # Background müziğini başlat
+    if not is_paused:  # Sadece oyun duraklatılmamışsa çal
+        background_channel.play(background_music, -1)  # -1 sonsuz döngü için
+    
     if is_paused:
         options = ["Devam Et", "Ayarlar", "Ana Menüye Dön"]
     else:
@@ -463,14 +470,17 @@ def show_main_menu(is_paused=False):
                     if menu_state == "main":
                         if is_paused:
                             if selected_option == 0:  # Devam Et
+                                background_channel.stop()  # Menü müziğini durdur
                                 return "resume"
                             elif selected_option == 1:  # Ayarlar
                                 menu_state = "settings"
                                 selected_option = 0
                             elif selected_option == 2:  # Ana Menüye Dön
+                                background_channel.stop()  # Menü müziğini durdur
                                 return "main_menu"
                         else:
                             if selected_option == 0:  # Oyna
+                                background_channel.stop()  # Menü müziğini durdur
                                 return "play"
                             elif selected_option == 1:  # Ayarlar
                                 menu_state = "settings"
