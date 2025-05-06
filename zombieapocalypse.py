@@ -1,18 +1,3 @@
-# Oyuncu hareketi için çarpışma kontrolü
-def check_player_collision_with_obstacles(player_pos, move_x, move_y):
-    new_x = player_pos[0] + move_x
-    new_y = player_pos[1] + move_y
-    
-    # Dünya sınırlarını kontrol et
-    if new_x < 0 or new_x > WIDTH - player_size or new_y < 0 or new_y > HEIGHT - player_size:
-        return player_pos[0], player_pos[1]
-    
-    # Engellerle çarpışmayı kontrol et
-    for obstacle in world["obstacles"]:
-        if check_collision((new_x, new_y), obstacle, player_size, obstacle[2]):
-            return player_pos[0], player_pos[1]
-    
-    return new_x, new_y
     
 import pygame
 import random
@@ -20,6 +5,7 @@ import sys
 import math
 from pypresence import Presence
 import time
+
 
 # Discord RPC ayarları
 CLIENT_ID = '1369068337262235688'  # Discord Developer Portal'dan alınacak
@@ -420,6 +406,22 @@ world = {
     "obstacles": generate_random_obstacles(),
     "background": pygame.transform.scale(pygame.image.load("background.png"), (WIDTH, HEIGHT))
 }
+
+# Oyuncu hareketi için çarpışma kontrolü
+def check_player_collision_with_obstacles(player_pos, move_x, move_y):
+    new_x = player_pos[0] + move_x
+    new_y = player_pos[1] + move_y
+    
+    # Dünya sınırlarını kontrol et
+    if new_x < 0 or new_x > WIDTH - player_size or new_y < 0 or new_y > HEIGHT - player_size:
+        return player_pos[0], player_pos[1]
+    
+    # Engellerle çarpışmayı kontrol et
+    for obstacle in world["obstacles"]:
+        if check_collision((new_x, new_y), obstacle, player_size, obstacle[2]):
+            return player_pos[0], player_pos[1]
+    
+    return new_x, new_y
 
 # Çarpışma kontrolü
 def check_collision(rect1, rect2, size1, size2):
