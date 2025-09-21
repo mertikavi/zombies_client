@@ -62,4 +62,4 @@ zombieapocalypse.py   # Oyunun ana dosyası
 ---
 
 ## 📜 Lisans
-Bu proje **MIT** lisansı ile lisanslanmıştır.
+Bu proje **Apache 2.0** lisansı ile lisanslanmıştır.
