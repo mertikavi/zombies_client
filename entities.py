@@ -19,6 +19,7 @@ class Player:
             "pistol": {"ammo": 0, "owned": True},
             "ak47": {"ammo": 0, "owned": False},
             "shotgun": {"ammo": 0, "owned": False},
+            "flamethrower": {"ammo": 0, "owned": False},
             "slot1": None
         }
         self.current_weapon = "pistol"
@@ -28,6 +29,15 @@ class Player:
         self.knife_start_time = 0
         self.grenades = 0
         self.max_grenades = 5
+        self.sentries = 0
+        self.max_sentries = 3
+        
+        # Dash mechanic
+        self.is_dashing = False
+        self.dash_timer = 0
+        self.dash_cooldown_timer = 0
+        self.dash_dir_x = 0
+        self.dash_dir_y = 0
         
     def switch_weapon(self, weapon_name):
         if weapon_name != "knife" and not self.inventory[weapon_name]["owned"]:
@@ -43,9 +53,11 @@ class Player:
             self.bullets_in_magazine = self.inventory[weapon_name]["ammo"]
             
     def pickup_weapon(self, weapon_type):
-        if self.current_weapon not in ["knife"]:
-            self.inventory[self.current_weapon]["ammo"] = self.bullets_in_magazine
-            self.inventory[self.current_weapon]["owned"] = False
+        if self.inventory.get("slot1"):
+            old_weapon = self.inventory["slot1"]
+            if self.current_weapon == old_weapon:
+                self.inventory[old_weapon]["ammo"] = self.bullets_in_magazine
+            self.inventory[old_weapon]["owned"] = False
             
         self.inventory["slot1"] = weapon_type
         self.inventory[weapon_type]["owned"] = True
@@ -73,7 +85,7 @@ class Player:
         p2 = (x + math.cos(angle + math.pi*0.75)*PLAYER_SIZE, y + math.sin(angle + math.pi*0.75)*PLAYER_SIZE)
         p3 = (x + math.cos(angle - math.pi*0.75)*PLAYER_SIZE, y + math.sin(angle - math.pi*0.75)*PLAYER_SIZE)
         # Main Hull
-        pygame.draw.polygon(surface, (30, 200, 100), [p1, p2, p3])
+        pygame.draw.polygon(surface, game_settings["character_color"], [p1, p2, p3])
         # Engine trails if sprinting
         if self.is_sprinting:
             trail_p = (x + math.cos(angle + math.pi)*PLAYER_SIZE*1.2, y + math.sin(angle + math.pi)*PLAYER_SIZE*1.2)
@@ -147,11 +159,29 @@ class Zombie:
             self.health = 2
             self.speed = 1.5 + wave * 0.2
             self.color = LIGHT_BLUE
-        else:
+        elif z_type <= 90:
             self.type = "fast"
             self.health = 1
             self.speed = 2.5 + wave * 0.3
             self.color = PURPLE
+        elif z_type <= 95:
+            self.type = "boomer"
+            self.health = 2
+            self.speed = 1.2 + wave * 0.1
+            self.color = (150, 255, 50) # Toxic green
+        else:
+            self.type = "stealth"
+            self.health = 1
+            self.speed = 1.8 + wave * 0.2
+            self.color = (50, 50, 50) # Dark gray, mostly transparent later
+            
+        # If it's a boss wave, override occasionally (this will be handled in game.py, but let's set defaults for boss if forced)
+        if wave % 5 == 0 and random.random() < 0.05:
+            self.type = "boss"
+            self.health = 15 + wave * 2
+            self.speed = 0.8 + wave * 0.05
+            self.color = (255, 50, 100) # Deep red
+            self.size = ZOMBIE_SIZE * 2
 
     def draw(self, surface, player_x, player_y, current_time=0):
         center_x = self.x + self.size // 2
@@ -183,13 +213,23 @@ class Zombie:
             p3 = (center_x + math.cos(angle+math.pi)*self.size*0.5, center_y + math.sin(angle+math.pi)*self.size*0.5)
             p4 = (center_x + math.cos(angle-math.pi/2)*self.size*0.7, center_y + math.sin(angle-math.pi/2)*self.size*0.7)
             pygame.draw.polygon(surface, draw_color, [p1, p2, p3, p4])
-        elif self.type == "durable":
-            # Hexagon rotated
+        elif self.type == "durable" or self.type == "boomer" or self.type == "boss":
+            # Hexagon rotated (bigger for boss)
             points = []
             for i in range(6):
                 a = angle + (math.pi/3) * i
                 points.append((center_x + math.cos(a)*self.size*0.6, center_y + math.sin(a)*self.size*0.6))
+            if self.type == "boomer":
+                # Boomer pulses
+                pulse = math.sin(current_time * 0.01) * 3
+                points = [(px + math.cos(angle+(math.pi/3)*i)*pulse, py + math.sin(angle+(math.pi/3)*i)*pulse) for i, (px, py) in enumerate(points)]
+                
             pygame.draw.polygon(surface, draw_color, points)
+        elif self.type == "stealth":
+            # Only draw if flashing or close to player
+            dist = math.hypot(player_x + PLAYER_SIZE//2 - center_x, player_y + PLAYER_SIZE//2 - center_y)
+            if is_flashing or dist < 120:
+                pygame.draw.rect(surface, draw_color, (self.x, self.y, self.size, self.size))
 
 class Grenade:
     def __init__(self, start_x, start_y, target_x, target_y):
@@ -251,10 +291,15 @@ class Grenade:
             pygame.draw.circle(surface, (50, 150, 50), (int(self.x), int(self.y)), 4)
 
 class Bullet:
-    def __init__(self, x, y, dx, dy, speed, spread=0):
+    def __init__(self, x, y, dx, dy, speed, spread=0, weapon_type="normal"):
         self.x = x
         self.y = y
-        self.size = 5
+        self.size = 5 if weapon_type == "normal" else 15
+        self.trail = []
+        self.max_trail_len = 10 if weapon_type == "normal" else 5
+        self.weapon_type = weapon_type
+        self.pierced_zombies = set()
+        self.lifetime = 0
         
         # Apply spread
         if spread > 0:
@@ -274,10 +319,30 @@ class Bullet:
             self.dy = (self.dy / length) * speed
 
     def move(self):
+        self.trail.append((self.x, self.y))
+        if len(self.trail) > self.max_trail_len:
+            self.trail.pop(0)
+            
         self.x += self.dx
         self.y += self.dy
+        self.lifetime += 1
 
     def draw(self, surface):
+        if self.weapon_type == "flamethrower":
+            # Fire effect
+            color = (255, random.randint(100, 200), 0)
+            pygame.draw.circle(surface, color, (int(self.x), int(self.y)), self.size)
+            if len(self.trail) > 1:
+                pygame.draw.lines(surface, (255, 100, 0, 100), False, self.trail, max(2, self.size-5))
+            return
+            
+        if len(self.trail) > 1:
+            points = self.trail + [(self.x, self.y)]
+            for i in range(len(points) - 1):
+                radius = max(1, int(self.size * (i / len(points))))
+                color = game_settings["bullet_color"]
+                pygame.draw.circle(surface, color, (int(points[i][0]), int(points[i][1])), radius)
+                
         pygame.draw.circle(surface, game_settings["bullet_color"], (int(self.x), int(self.y)), self.size)
 
 class Item:
@@ -327,3 +392,143 @@ class Item:
             pygame.draw.rect(surface, (50, 50, 50), (self.x, draw_y, self.size, self.size), border_radius=5)
             pygame.draw.rect(surface, WHITE, (self.x, draw_y, self.size, self.size), 2, border_radius=5)
             surface.blit(weapon_lbl, (self.x + (self.size - weapon_lbl.get_width())//2, draw_y + (self.size - weapon_lbl.get_height())//2))
+
+
+class BreakableProp:
+    def __init__(self, x, y, width, height, health=30):
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+        self.health = health
+        self.max_health = health
+        self.hit_flash_timer = 0
+        
+    def draw(self, surface):
+        color = (139, 69, 19) # Brown (wood color)
+        if pygame.time.get_ticks() - self.hit_flash_timer < 50:
+            color = (255, 200, 200) # White-ish flash
+        
+        # Shadow
+        shadow_surf = get_shadow_surface(self.width, 10, alpha=150)
+        surface.blit(shadow_surf, (self.x, self.y + self.height - 5))
+            
+        pygame.draw.rect(surface, color, (self.x, self.y, self.width, self.height))
+        # Draw some crate lines
+        pygame.draw.rect(surface, (101, 67, 33), (self.x, self.y, self.width, self.height), 2)
+        pygame.draw.line(surface, (101, 67, 33), (self.x, self.y), (self.x + self.width, self.y + self.height), 2)
+        pygame.draw.line(surface, (101, 67, 33), (self.x + self.width, self.y), (self.x, self.y + self.height), 2)
+
+
+class Pet:
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+        self.size = 15
+        self.speed = PLAYER_BASE_SPEED * 1.2
+        self.target_zombie = None
+        self.attack_cooldown = 1000
+        self.last_attack_time = 0
+        self.damage = 1
+
+    def update(self, player_x, player_y, zombies, current_time):
+        center_x = self.x + self.size//2
+        center_y = self.y + self.size//2
+        
+        # 1. Find nearest zombie within range
+        detection_range = 250
+        if not self.target_zombie or self.target_zombie not in zombies:
+            self.target_zombie = None
+            closest_dist = detection_range
+            for z in zombies:
+                dist = math.hypot((z.x + z.size//2) - center_x, (z.y + z.size//2) - center_y)
+                if dist < closest_dist:
+                    closest_dist = dist
+                    self.target_zombie = z
+        
+        # 2. Move towards zombie or player
+        target_x, target_y = player_x, player_y
+        attacking = False
+        
+        if self.target_zombie:
+            zx = self.target_zombie.x + self.target_zombie.size//2
+            zy = self.target_zombie.y + self.target_zombie.size//2
+            dist_to_z = math.hypot(zx - center_x, zy - center_y)
+            if dist_to_z < 30:
+                # Attack!
+                attacking = True
+                if current_time - self.last_attack_time > self.attack_cooldown:
+                    self.target_zombie.health -= self.damage
+                    self.target_zombie.hit_flash_timer = current_time
+                    self.last_attack_time = current_time
+            else:
+                target_x, target_y = zx, zy
+        else:
+            # Follow player loosely
+            dist_to_p = math.hypot(player_x - center_x, player_y - center_y)
+            if dist_to_p < 60:
+                # Close enough
+                return None # no attack output
+                
+        if not attacking:
+            angle = math.atan2(target_y - center_y, target_x - center_x)
+            self.x += math.cos(angle) * self.speed
+            self.y += math.sin(angle) * self.speed
+            
+        return self.target_zombie if (attacking and current_time == self.last_attack_time) else None
+
+    def draw(self, surface):
+        # Draw a cute little dog (brown rectangle with ears/tail)
+        color = (139, 69, 19)
+        pygame.draw.rect(surface, color, (self.x, self.y, self.size, self.size), border_radius=4)
+        
+        # Eyes
+        pygame.draw.circle(surface, (0, 0, 0), (int(self.x + 4), int(self.y + 4)), 2)
+        pygame.draw.circle(surface, (0, 0, 0), (int(self.x + 10), int(self.y + 4)), 2)
+
+class SentryGun:
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+        self.size = 20
+        self.ammo = 150
+        self.angle = 0
+        self.target = None
+        self.last_shot_time = 0
+        self.fire_rate = 150 # ms
+        self.damage = 1
+        
+    def update(self, zombies, current_time):
+        if self.ammo <= 0:
+            return None
+            
+        # Find closest zombie
+        closest_dist = 300
+        self.target = None
+        for z in zombies:
+            zx = z.x + z.size//2
+            zy = z.y + z.size//2
+            dist = math.hypot(zx - self.x, zy - self.y)
+            if dist < closest_dist:
+                closest_dist = dist
+                self.target = z
+                
+        if self.target:
+            zx = self.target.x + self.target.size//2
+            zy = self.target.y + self.target.size//2
+            self.angle = math.atan2(zy - self.y, zx - self.x)
+            
+            if current_time - self.last_shot_time > self.fire_rate:
+                self.last_shot_time = current_time
+                self.ammo -= 1
+                return self.target
+        return None
+
+    def draw(self, surface):
+        # Base
+        pygame.draw.circle(surface, (100, 100, 100), (int(self.x), int(self.y)), self.size)
+        pygame.draw.circle(surface, (50, 50, 50), (int(self.x), int(self.y)), self.size, 2)
+        # Gun barrel
+        end_x = self.x + math.cos(self.angle) * (self.size + 10)
+        end_y = self.y + math.sin(self.angle) * (self.size + 10)
+        pygame.draw.line(surface, (150, 50, 50), (self.x, self.y), (end_x, end_y), 4)

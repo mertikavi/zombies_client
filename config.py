@@ -37,9 +37,12 @@ BULLET_COLORS = {
 
 # --- GLOBAL GAME SETTINGS ---
 game_settings = {
-    "difficulty": "Normal",  # Kolay, Normal, Zor
-    "character_color": GREEN,
+    "difficulty": "Normal",
+    "character_color": YELLOW,
     "bullet_color": YELLOW,
+    "music": True,
+    "sound": True,
+    "fov": True,
     "width": 1920, # Default, will be updated by pygame.display.Info
     "height": 1080
 }
@@ -107,7 +110,7 @@ weapons_data = {
         "damage": 2,
         "fire_rate": 5,
         "bullet_speed": bullet_speed + 2,
-        "fire_delay": 410,
+        "fire_delay": 120,
         "reload_time": 600,
         "max_ammo": 30,
         "spread": 1
@@ -125,5 +128,16 @@ weapons_data = {
         "damage": 1,
         "fire_delay": 1000,
         "swing_duration": 150
+    },
+    "flamethrower": {
+        "damage": 1,
+        "fire_rate": 1,
+        "bullet_speed": bullet_speed - 2,
+        "fire_delay": 50,
+        "reload_time": 400,
+        "spread": 15,
+        "max_ammo": 100,
+        "pierce": True,
+        "lifetime": 20
     }
 }

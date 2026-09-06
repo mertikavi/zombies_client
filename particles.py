@@ -37,11 +37,39 @@ class Particle:
             surface.blit(s, (int(self.x - self.size), int(self.y - self.size)))
 
 
+class FloatingText:
+    def __init__(self, x, y, text, color, lifetime=1000):
+        self.x = x
+        self.y = y
+        self.text = text
+        self.color = color
+        self.lifetime = lifetime
+        self.max_lifetime = lifetime
+        self.dy = -1.5 # Float upwards
+
+    def update(self, dt):
+        self.y += self.dy
+        self.lifetime -= dt
+        return self.lifetime > 0
+
+    def draw(self, surface, font):
+        if self.lifetime > 0:
+            alpha = int(255 * (self.lifetime / self.max_lifetime))
+            txt_surf = font.render(self.text, True, self.color)
+            txt_surf.set_alpha(alpha)
+            surface.blit(txt_surf, (int(self.x), int(self.y)))
+
+
 class ParticleSystem:
     def __init__(self):
         self.particles = []
+        self.floating_texts = []
         
-    def add_blood(self, x, y, count=10):
+    def add_floating_text(self, x, y, text, color=(255, 255, 255)):
+        # Randomize x slightly so texts don't perfectly overlap
+        self.floating_texts.append(FloatingText(x + random.uniform(-10, 10), y, text, color))
+        
+    def add_blood(self, x, y, count=10, color=(200, 0, 0)):
         for _ in range(count):
             angle = random.uniform(0, math.pi * 2)
             speed = random.uniform(2, 6)
@@ -65,9 +93,12 @@ class ParticleSystem:
         self.particles.append(Particle(x, y, (255, 150, 50), size=25, speed=0, angle=0, lifetime=30))
 
     def update(self, dt):
-        # Keep only alive particles
         self.particles = [p for p in self.particles if p.update(dt)]
+        self.floating_texts = [ft for ft in self.floating_texts if ft.update(dt)]
 
-    def draw(self, surface):
+    def draw(self, surface, font=None):
         for p in self.particles:
             p.draw(surface)
+        if font:
+            for ft in self.floating_texts:
+                ft.draw(surface, font)

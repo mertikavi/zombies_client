@@ -97,11 +97,10 @@ class HUD:
         weapons_to_draw.append(("knife", inv_start_y + spacing * 2))
         # Slot 2: Pistol
         weapons_to_draw.append(("pistol", inv_start_y + spacing))
-        # Slot 1: Primary (AK47 or Shotgun)
-        if player.inventory["ak47"]["owned"] and (player.inventory["ak47"]["ammo"] > 0 or player.current_weapon == "ak47"):
-            weapons_to_draw.append(("ak47", inv_start_y))
-        elif player.inventory["shotgun"]["owned"] and (player.inventory["shotgun"]["ammo"] > 0 or player.current_weapon == "shotgun"):
-            weapons_to_draw.append(("shotgun", inv_start_y))
+        # Slot 1: Primary (AK47, Shotgun, or Flamethrower)
+        slot1_weapon = player.inventory.get("slot1")
+        if slot1_weapon and player.inventory[slot1_weapon]["owned"]:
+            weapons_to_draw.append((slot1_weapon, inv_start_y))
 
         for weapon_name, y_pos in weapons_to_draw:
             # Slot BG
@@ -141,7 +140,7 @@ class Menu:
         selected = 0
         clock = pygame.time.Clock()
         
-        if not is_paused:
+        if not assets.channels['background'].get_busy():
             assets.channels['background'].play(assets.sounds['background'], -1)
 
         options = ["Devam Et", "Ayarlar", "Ana Menüye Dön"] if is_paused else ["Oyna", "Ayarlar", "Çıkış"]
@@ -187,9 +186,12 @@ class Menu:
                     f"Zorluk: {game_settings['difficulty']}",
                     f"Karakter Rengi: {char_c_name}",
                     f"Mermi Rengi: {bull_c_name}",
+                    f"Müzik: {'Açık' if game_settings['music'] else 'Kapalı'}",
+                    f"Ses Efektleri: {'Açık' if game_settings['sound'] else 'Kapalı'}",
+                    f"Görüş Alanı (FOV): {'Açık' if game_settings['fov'] else 'Kapalı'}",
                     "Geri"
                 ]
-                panel_w, panel_h = 350, len(settings_opts) * 70 + 40
+                panel_w, panel_h = 400, len(settings_opts) * 70 + 40
                 HUD(self.width, self.height).draw_glass_panel(surface, (self.width//2 - panel_w//2, self.height//2 - 80, panel_w, panel_h))
                 
                 for i, opt in enumerate(settings_opts):
@@ -206,7 +208,7 @@ class Menu:
                 if event.type == pygame.QUIT:
                     return "quit"
                 if event.type == pygame.KEYDOWN:
-                    opts_len = 4 if menu_state == "settings" else 3
+                    opts_len = len(settings_opts) if menu_state == "settings" else 3
                     if event.key == pygame.K_UP:
                         selected = (selected - 1) % opts_len
                     elif event.key == pygame.K_DOWN:
@@ -214,14 +216,12 @@ class Menu:
                     elif event.key == pygame.K_RETURN:
                         if menu_state == "main":
                             if selected == 0:
-                                assets.channels['background'].stop()
                                 return "resume" if is_paused else "play"
                             elif selected == 1:
                                 menu_state = "settings"
                                 selected = 0
                             elif selected == 2:
                                 if is_paused:
-                                    assets.channels['background'].stop()
                                     return "main_menu"
                                 else:
                                     return "quit"
@@ -240,6 +240,14 @@ class Menu:
                                 idx = next(i for i, (k, v) in enumerate(colors) if v == game_settings["bullet_color"])
                                 game_settings["bullet_color"] = colors[(idx + 1) % len(colors)][1]
                             elif selected == 3:
+                                game_settings["music"] = not game_settings["music"]
+                                assets.update_volumes()
+                            elif selected == 4:
+                                game_settings["sound"] = not game_settings["sound"]
+                                assets.update_volumes()
+                            elif selected == 5:
+                                game_settings["fov"] = not game_settings["fov"]
+                            elif selected == 6:
                                 menu_state = "main"
                                 selected = 0
 
