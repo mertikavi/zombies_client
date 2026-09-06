@@ -49,7 +49,7 @@ class HUD:
             pygame.draw.rect(surface, (50, 150, 255), (120, 70, s_fill_w, 20), border_radius=5)
 
         # Glass Panel for Weapon Info
-        self.draw_glass_panel(surface, (self.width - 270, 10, 260, 130))
+        self.draw_glass_panel(surface, (self.width - 270, 10, 260, 165))
         
         # Draw Weapon Info
         wp_name = player.current_weapon.upper()
@@ -69,20 +69,23 @@ class HUD:
         surface.blit(wp_text, (self.width - 250, 20))
         surface.blit(ammo_text, (self.width - 250, 60))
         surface.blit(grenade_text, (self.width - 250, 100))
+        
+        sentry_text = assets.fonts['normal'].render(f"Taret: {player.sentries}/{player.max_sentries}", True, WHITE)
+        surface.blit(sentry_text, (self.width - 250, 135))
 
         # Glass Panel for Wave Info
-        self.draw_glass_panel(surface, (self.width - 220, 150, 210, 130))
+        self.draw_glass_panel(surface, (self.width - 220, 190, 210, 130))
 
         # Draw Wave Info
         wave_txt = assets.fonts['normal'].render(f"Wave: {wave}", True, WHITE)
         req_txt = assets.fonts['normal'].render(f"Hedef: {zombies_required}", True, WHITE)
         left_txt = assets.fonts['normal'].render(f"Kalan: {zombies_alive}", True, WHITE)
         
-        surface.blit(assets.fonts['normal'].render(f"Wave: {wave}", True, BLACK), (self.width - 200 + 2, 160 + 2))
+        surface.blit(assets.fonts['normal'].render(f"Wave: {wave}", True, BLACK), (self.width - 200 + 2, 200 + 2))
         
-        surface.blit(wave_txt, (self.width - 200, 160))
-        surface.blit(req_txt, (self.width - 200, 200))
-        surface.blit(left_txt, (self.width - 200, 240))
+        surface.blit(wave_txt, (self.width - 200, 200))
+        surface.blit(req_txt, (self.width - 200, 240))
+        surface.blit(left_txt, (self.width - 200, 280))
 
         # Draw Inventory
         self.draw_inventory(surface, player)

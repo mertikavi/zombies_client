@@ -491,11 +491,11 @@ class SentryGun:
         self.x = x
         self.y = y
         self.size = 20
-        self.ammo = 150
+        self.ammo = 40
         self.angle = 0
         self.target = None
         self.last_shot_time = 0
-        self.fire_rate = 150 # ms
+        self.fire_rate = 500 # ms
         self.damage = 1
         
     def update(self, zombies, current_time):

@@ -533,7 +533,7 @@ class GameManager:
                 # Fire visual bullet
                 dx = math.cos(s.angle)
                 dy = math.sin(s.angle)
-                self.bullets.append(Bullet(s.x, s.y, dx, dy, s.damage, 15))
+                self.bullets.append(Bullet(s.x, s.y, dx, dy, 15, spread=3))
                 # Casing and flash
                 self.particles.add_casing(s.x, s.y, s.angle)
                 self.particles.add_muzzle_flash(s.x + dx*s.size, s.y + dy*s.size, s.angle)
