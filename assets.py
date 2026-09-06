@@ -21,12 +21,6 @@ class AssetManager:
         self.fonts['large'] = pygame.font.SysFont("segoeui", 48, bold=True)
         self.fonts['small'] = pygame.font.SysFont("segoeui", 16)
         
-        # Load Images
-        self.images['background'] = pygame.transform.scale(
-            pygame.image.load("background.png").convert(), 
-            (width, height)
-        )
-        
         # Intro Logo (keep aspect ratio)
         intro_logo = pygame.image.load("./logos/logo_text.png").convert_alpha()
         original_width = intro_logo.get_width()
