@@ -84,9 +84,58 @@ def main():
         if res == "play":
             game = GameManager(screen, width, height)
             game.run()
+        elif res == "multiplayer":
+            _handle_multiplayer(screen, width, height, menu)
         elif res == "quit":
             pygame.quit()
             sys.exit()
+
+
+def _handle_multiplayer(screen, width, height, menu):
+    """Handle the full multiplayer flow: connect, browse/create rooms, lobby, game."""
+    from network import NetworkClient
+    from multiplayer_game import MultiplayerGameManager
+
+    network = NetworkClient()
+
+    while True:
+        result = menu.show_multiplayer_menu(screen, network)
+        action = result[0]
+        data = result[1]
+
+        if action == "back":
+            network.disconnect()
+            return
+        elif action == "quit":
+            network.disconnect()
+            pygame.quit()
+            sys.exit()
+        elif action == "start_game":
+            # Extract game start data
+            map_seed = data.get("map_seed", 0)
+            player_list = data.get("players", [])
+            is_host = network.is_host
+            player_name = network.player_name
+
+            # Start the multiplayer game
+            game = MultiplayerGameManager(
+                surface=screen,
+                width=width,
+                height=height,
+                network=network,
+                is_host=is_host,
+                player_name=player_name,
+                map_seed=map_seed,
+                player_list=player_list
+            )
+            result = game.run()
+
+            # After game ends, go back to multiplayer menu or main menu
+            if result == "main_menu":
+                network.disconnect()
+                return
+            # Otherwise loop back to multiplayer menu
+
 
 if __name__ == "__main__":
     main()

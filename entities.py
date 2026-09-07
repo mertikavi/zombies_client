@@ -5,9 +5,10 @@ from config import *
 from utils import check_collision, draw_triangle_pointing_to_mouse, create_glow_surface, get_shadow_surface
 
 class Player:
-    def __init__(self, x, y):
+    def __init__(self, x, y, player_name=""):
         self.x = x
         self.y = y
+        self.player_name = player_name
         self.size = PLAYER_SIZE
         self.health = MAX_PLAYER_HEALTH
         self.stamina = MAX_PLAYER_STAMINA
@@ -66,7 +67,7 @@ class Player:
         self.current_weapon = weapon_type
         self.bullets_in_magazine = self.inventory[weapon_type]["ammo"]
         
-    def draw(self, surface, mouse_pos):
+    def draw(self, surface, mouse_pos, draw_name=True):
         x = self.x + self.size // 2
         y = self.y + self.size // 2
         angle = math.atan2(mouse_pos[1] - y, mouse_pos[0] - x)
@@ -93,6 +94,19 @@ class Player:
         # Cockpit
         cockpit_c = (x + math.cos(angle)*PLAYER_SIZE*0.2, y + math.sin(angle)*PLAYER_SIZE*0.2)
         pygame.draw.circle(surface, (200, 255, 255), (int(cockpit_c[0]), int(cockpit_c[1])), 6)
+        
+        # Draw player name above
+        if draw_name and self.player_name:
+            try:
+                font = pygame.font.SysFont("segoeui", 16, bold=True)
+                name_surf = font.render(self.player_name, True, (255, 255, 255))
+                name_shadow = font.render(self.player_name, True, (0, 0, 0))
+                name_x = x - name_surf.get_width() // 2
+                name_y = self.y - 25
+                surface.blit(name_shadow, (name_x + 1, name_y + 1))
+                surface.blit(name_surf, (name_x, name_y))
+            except Exception:
+                pass
         
         # Draw knife swing if active
         if self.current_weapon == "knife" and self.knife_swing:
@@ -135,7 +149,9 @@ class Player:
             surface.blit(swing_surf, (0, 0))
 
 class Zombie:
-    def __init__(self, x, y, wave):
+    _next_id = 0
+    
+    def __init__(self, x, y, wave, entity_id=None):
         self.x = x
         self.y = y
         self.size = ZOMBIE_SIZE
@@ -145,6 +161,11 @@ class Zombie:
         self.color = RED
         self.last_damage_time = 0
         self.hit_flash_timer = 0
+        if entity_id is not None:
+            self.entity_id = entity_id
+        else:
+            Zombie._next_id += 1
+            self.entity_id = Zombie._next_id
         self.setup_stats(wave)
         
     def setup_stats(self, wave):
@@ -532,3 +553,105 @@ class SentryGun:
         end_x = self.x + math.cos(self.angle) * (self.size + 10)
         end_y = self.y + math.sin(self.angle) * (self.size + 10)
         pygame.draw.line(surface, (150, 50, 50), (self.x, self.y), (end_x, end_y), 4)
+
+
+class RemotePlayer:
+    """Represents a remote player in multiplayer. Only used for rendering."""
+    
+    def __init__(self, player_id, player_name, color=(0, 200, 255)):
+        self.player_id = player_id
+        self.player_name = player_name
+        self.color = color
+        self.x = 0
+        self.y = 0
+        self.target_x = 0
+        self.target_y = 0
+        self.health = MAX_PLAYER_HEALTH
+        self.stamina = MAX_PLAYER_STAMINA
+        self.current_weapon = "pistol"
+        self.angle = 0
+        self.is_sprinting = False
+        self.is_dashing = False
+        self.knife_swing = False
+        self.is_alive = True
+        self.size = PLAYER_SIZE
+        self.last_update_time = 0
+    
+    def update_from_network(self, data):
+        """Update state from network message."""
+        self.target_x = data.get("x", self.target_x)
+        self.target_y = data.get("y", self.target_y)
+        self.health = data.get("health", self.health)
+        self.stamina = data.get("stamina", self.stamina)
+        self.current_weapon = data.get("weapon", self.current_weapon)
+        self.angle = data.get("angle", self.angle)
+        self.is_sprinting = data.get("is_sprinting", self.is_sprinting)
+        self.is_dashing = data.get("is_dashing", self.is_dashing)
+        self.knife_swing = data.get("knife_swing", self.knife_swing)
+        self.is_alive = data.get("is_alive", self.is_alive)
+        self.last_update_time = pygame.time.get_ticks()
+    
+    def interpolate(self, lerp_factor=0.2):
+        """Smoothly interpolate position towards target."""
+        self.x += (self.target_x - self.x) * lerp_factor
+        self.y += (self.target_y - self.y) * lerp_factor
+    
+    def draw(self, surface):
+        """Draw the remote player."""
+        if not self.is_alive:
+            return
+        
+        x = self.x + self.size // 2
+        y = self.y + self.size // 2
+        angle = self.angle
+        
+        # Player Shadow
+        shadow_size = int(PLAYER_SIZE * 0.7 * 2)
+        shadow_surf = get_shadow_surface(shadow_size, shadow_size, alpha=100, is_ellipse=True)
+        surface.blit(shadow_surf, (x - shadow_size // 2, y - shadow_size // 2))
+        
+        # Player Glow
+        glow_surf = create_glow_surface(int(PLAYER_SIZE * 2), self.color, max_alpha=120)
+        surface.blit(glow_surf, (x - PLAYER_SIZE * 2, y - PLAYER_SIZE * 2), special_flags=pygame.BLEND_RGBA_ADD)
+        
+        # Draw Player Ship Model
+        p1 = (x + math.cos(angle) * PLAYER_SIZE, y + math.sin(angle) * PLAYER_SIZE)
+        p2 = (x + math.cos(angle + math.pi * 0.75) * PLAYER_SIZE, y + math.sin(angle + math.pi * 0.75) * PLAYER_SIZE)
+        p3 = (x + math.cos(angle - math.pi * 0.75) * PLAYER_SIZE, y + math.sin(angle - math.pi * 0.75) * PLAYER_SIZE)
+        pygame.draw.polygon(surface, self.color, [p1, p2, p3])
+        
+        # Engine trails if sprinting
+        if self.is_sprinting:
+            trail_p = (x + math.cos(angle + math.pi) * PLAYER_SIZE * 1.2,
+                       y + math.sin(angle + math.pi) * PLAYER_SIZE * 1.2)
+            pygame.draw.polygon(surface, (100, 255, 255), [p2, p3, trail_p])
+        
+        # Cockpit
+        cockpit_c = (x + math.cos(angle) * PLAYER_SIZE * 0.2,
+                     y + math.sin(angle) * PLAYER_SIZE * 0.2)
+        pygame.draw.circle(surface, (200, 255, 255), (int(cockpit_c[0]), int(cockpit_c[1])), 6)
+        
+        # Draw player name above
+        if self.player_name:
+            try:
+                font = pygame.font.SysFont("segoeui", 16, bold=True)
+                name_surf = font.render(self.player_name, True, (255, 255, 255))
+                name_shadow = font.render(self.player_name, True, (0, 0, 0))
+                name_x = x - name_surf.get_width() // 2
+                name_y = self.y - 25
+                surface.blit(name_shadow, (name_x + 1, name_y + 1))
+                surface.blit(name_surf, (name_x, name_y))
+            except Exception:
+                pass
+        
+        # Draw health bar above name
+        bar_width = 40
+        bar_height = 4
+        bar_x = x - bar_width // 2
+        bar_y = self.y - 35
+        health_ratio = max(0, self.health / MAX_PLAYER_HEALTH)
+        
+        pygame.draw.rect(surface, (50, 0, 0), (bar_x, bar_y, bar_width, bar_height), border_radius=2)
+        if health_ratio > 0:
+            fill_color = (50, 255, 50) if health_ratio > 0.5 else (255, 255, 0) if health_ratio > 0.25 else (255, 50, 50)
+            pygame.draw.rect(surface, fill_color, (bar_x, bar_y, int(bar_width * health_ratio), bar_height), border_radius=2)

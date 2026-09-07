@@ -141,3 +141,15 @@ weapons_data = {
         "lifetime": 20
     }
 }
+
+# --- MULTIPLAYER ---
+MULTIPLAYER_SERVER_URL = "ws://localhost:8765/ws"
+MULTIPLAYER_TICK_RATE = 20  # Send updates per second (50ms interval)
+MULTIPLAYER_INTERPOLATION_SPEED = 0.2  # Lerp factor for remote player positions
+MULTIPLAYER_MAX_PLAYERS = 4
+REMOTE_PLAYER_COLORS = [
+    (0, 200, 255),    # Cyan
+    (255, 100, 200),  # Pink
+    (100, 255, 100),  # Lime
+    (255, 200, 50),   # Gold
+]
