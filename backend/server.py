@@ -342,7 +342,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 "player_update", "bullet_fire", "entity_spawn",
                 "entity_kill", "player_action", "grenade_throw",
                 "sentry_place", "game_state", "wave_change",
-                "item_pickup", "chat"
+                "item_pickup", "chat", "zombie_sync"
             ):
                 await handle_game_message(player, data)
             else:

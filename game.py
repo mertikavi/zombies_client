@@ -124,22 +124,22 @@ class GameManager:
                 self.items.append(Item(x, y, type))
                 break
             
-    def handle_input(self, dt):
+    def handle_input(self, dt, dt_factor=1.0):
         keys = pygame.key.get_pressed()
         move_x = move_y = 0
         
         # Sprinting
         if keys[pygame.K_LSHIFT] and self.player.stamina > 0:
-            speed = PLAYER_SPRINT_SPEED
+            speed = PLAYER_SPRINT_SPEED * dt_factor
             self.player.is_sprinting = True
             diff = DIFFICULTY_SETTINGS[game_settings["difficulty"]]
-            self.player.stamina -= diff["stamina_drain_rate"]
+            self.player.stamina -= diff["stamina_drain_rate"] * dt_factor
         else:
-            speed = PLAYER_BASE_SPEED
+            speed = PLAYER_BASE_SPEED * dt_factor
             self.player.is_sprinting = False
             if self.player.stamina < MAX_PLAYER_STAMINA:
                 diff = DIFFICULTY_SETTINGS[game_settings["difficulty"]]
-                self.player.stamina = min(MAX_PLAYER_STAMINA, self.player.stamina + diff["stamina_regen_rate"])
+                self.player.stamina = min(MAX_PLAYER_STAMINA, self.player.stamina + diff["stamina_regen_rate"] * dt_factor)
 
         if keys[pygame.K_w]: move_y = -speed
         if keys[pygame.K_s]: move_y = speed
@@ -177,8 +177,8 @@ class GameManager:
                 
         if self.player.is_dashing:
             if current_time - self.player.dash_timer < 200: # 200ms dash duration
-                move_x = self.player.dash_dir_x * PLAYER_BASE_SPEED * 4
-                move_y = self.player.dash_dir_y * PLAYER_BASE_SPEED * 4
+                move_x = self.player.dash_dir_x * PLAYER_BASE_SPEED * 4 * dt_factor
+                move_y = self.player.dash_dir_y * PLAYER_BASE_SPEED * 4 * dt_factor
                 # Spawn dash trail particles
                 self.particles.add_blood(self.player.x + PLAYER_SIZE//2, self.player.y + PLAYER_SIZE//2, 1, color=(100, 255, 255))
             else:
@@ -349,7 +349,7 @@ class GameManager:
             self.spawn_wave_items()
             update_discord_presence(self.wave, self.total_kills, self.player.health)
 
-    def update_zombies(self):
+    def update_zombies(self, dt_factor=1.0):
         diff = DIFFICULTY_SETTINGS[game_settings["difficulty"]]
         px = self.player.x + PLAYER_SIZE//2
         py = self.player.y + PLAYER_SIZE//2
@@ -360,7 +360,7 @@ class GameManager:
             zy = z.y + z.size//2
             angle = math.atan2(py - zy, px - zx)
             
-            speed = z.speed * diff["zombie_speed_multiplier"]
+            speed = z.speed * diff["zombie_speed_multiplier"] * dt_factor
             move_x = math.cos(angle) * speed
             move_y = math.sin(angle) * speed
             
@@ -684,6 +684,7 @@ class GameManager:
         
         while True:
             dt = clock.tick(60)
+            dt_factor = min(max(dt / (1000.0 / 60.0), 0.5), 3.0)
             current_time = pygame.time.get_ticks()
             self.particles.update(dt)
             
@@ -747,9 +748,9 @@ class GameManager:
                 self.spawn_wave()
 
             self.update_sentries(current_time)
-            self.handle_input(dt)
+            self.handle_input(dt, dt_factor)
             self.handle_shooting(pygame.mouse.get_pos())
-            self.update_zombies()
+            self.update_zombies(dt_factor)
             self.update_bullets()
             self.update_grenades(current_time)
             self.update_items()

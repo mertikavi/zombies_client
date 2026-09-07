@@ -39,6 +39,8 @@ class MultiplayerGameManager:
         # Network timing
         self.last_network_send = 0
         self.network_send_interval = 1000 // MULTIPLAYER_TICK_RATE  # ms
+        self.last_zombie_sync = 0
+        self.zombie_sync_interval = 100  # Authoritative host sync every 100ms (10Hz)
 
         # Pre-allocated surfaces for rendering performance
         self.shake_surface = pygame.Surface((self.width, self.height))
@@ -230,6 +232,8 @@ class MultiplayerGameManager:
                 self._handle_wave_change(msg)
             elif msg_type == "item_pickup":
                 self._handle_item_pickup(msg)
+            elif msg_type == "zombie_sync":
+                self._handle_zombie_sync(msg)
             elif msg_type == "player_left":
                 self._handle_player_left(msg)
 
@@ -317,6 +321,30 @@ class MultiplayerGameManager:
         if item_index is not None and 0 <= item_index < len(self.items):
             self.items.pop(item_index)
 
+    def _handle_zombie_sync(self, data):
+        """Synchronize zombie positions from host to eliminate desync on low FPS clients."""
+        if self.is_host:
+            return  # Host is authoritative
+
+        zombie_list = data.get("zombies", [])
+        zombie_map = {z.entity_id: z for z in self.zombies}
+
+        for item in zombie_list:
+            zid = item.get("id")
+            hx = item.get("x")
+            hy = item.get("y")
+            if zid in zombie_map and hx is not None and hy is not None:
+                z = zombie_map[zid]
+                dist = math.hypot(hx - z.x, hy - z.y)
+                if dist > 60:
+                    # If client fell significantly behind, snap to host position
+                    z.x = hx
+                    z.y = hy
+                else:
+                    # Smoothly catch up towards host position
+                    z.x += (hx - z.x) * 0.5
+                    z.y += (hy - z.y) * 0.5
+
     def _handle_player_left(self, data):
         """Handle a player leaving the game."""
         player_id = data.get("player_id")
@@ -352,25 +380,36 @@ class MultiplayerGameManager:
             is_alive=not self.game_over
         )
 
+        # Host broadcasts authoritative zombie positions
+        if self.is_host:
+            if current_time - self.last_zombie_sync >= self.zombie_sync_interval:
+                self.last_zombie_sync = current_time
+                if self.zombies:
+                    z_data = [
+                        {"id": z.entity_id, "x": round(z.x, 1), "y": round(z.y, 1)}
+                        for z in self.zombies
+                    ]
+                    self.network.send_zombie_sync(z_data)
+
     # ================================================================
     # GAME LOGIC (mostly from GameManager, adapted for multiplayer)
     # ================================================================
 
-    def handle_input(self, dt):
+    def handle_input(self, dt, dt_factor=1.0):
         keys = pygame.key.get_pressed()
         move_x = move_y = 0
 
         if keys[pygame.K_LSHIFT] and self.player.stamina > 0:
-            speed = PLAYER_SPRINT_SPEED
+            speed = PLAYER_SPRINT_SPEED * dt_factor
             self.player.is_sprinting = True
             diff = DIFFICULTY_SETTINGS[game_settings["difficulty"]]
-            self.player.stamina -= diff["stamina_drain_rate"]
+            self.player.stamina -= diff["stamina_drain_rate"] * dt_factor
         else:
-            speed = PLAYER_BASE_SPEED
+            speed = PLAYER_BASE_SPEED * dt_factor
             self.player.is_sprinting = False
             if self.player.stamina < MAX_PLAYER_STAMINA:
                 diff = DIFFICULTY_SETTINGS[game_settings["difficulty"]]
-                self.player.stamina = min(MAX_PLAYER_STAMINA, self.player.stamina + diff["stamina_regen_rate"])
+                self.player.stamina = min(MAX_PLAYER_STAMINA, self.player.stamina + diff["stamina_regen_rate"] * dt_factor)
 
         if keys[pygame.K_w]: move_y = -speed
         if keys[pygame.K_s]: move_y = speed
@@ -602,7 +641,7 @@ class MultiplayerGameManager:
             self.network.send_wave_change(self.wave, self.zombies_required)
             update_discord_presence(self.wave, self.total_kills, self.player.health)
 
-    def update_zombies(self):
+    def update_zombies(self, dt_factor=1.0):
         """All clients update zombie movement locally (deterministic)."""
         diff = DIFFICULTY_SETTINGS[game_settings["difficulty"]]
         px = self.player.x + PLAYER_SIZE // 2
@@ -629,7 +668,7 @@ class MultiplayerGameManager:
                     target_x, target_y = tpx, tpy
 
             angle = math.atan2(target_y - zy, target_x - zx)
-            speed = z.speed * diff["zombie_speed_multiplier"]
+            speed = z.speed * diff["zombie_speed_multiplier"] * dt_factor
             move_x = math.cos(angle) * speed
             move_y = math.sin(angle) * speed
 
@@ -975,6 +1014,7 @@ class MultiplayerGameManager:
 
         while True:
             dt = clock.tick(60)
+            dt_factor = min(max(dt / (1000.0 / 60.0), 0.5), 3.0)
             current_time = pygame.time.get_ticks()
             self.particles.update(dt)
 
@@ -1041,9 +1081,9 @@ class MultiplayerGameManager:
                     self.spawn_wave()
 
             self.update_sentries(current_time)
-            self.handle_input(dt)
+            self.handle_input(dt, dt_factor)
             self.handle_shooting(pygame.mouse.get_pos())
-            self.update_zombies()
+            self.update_zombies(dt_factor)
             self.update_bullets()
             self.update_grenades(current_time)
             self.update_items()
