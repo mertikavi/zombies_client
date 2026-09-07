@@ -16,6 +16,8 @@ class GameManager:
         self.height = height
         self.hud = HUD(width, height)
         self.menu = Menu(width, height)
+        self.shake_surface = pygame.Surface((self.width, self.height))
+        self.fov_surface = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
         
         self.reset_game()
 
@@ -558,7 +560,7 @@ class GameManager:
             offset_y = random.randint(-self.screen_shake, self.screen_shake)
             self.screen_shake -= 1
             
-        shake_surface = pygame.Surface((self.width, self.height))
+        shake_surface = self.shake_surface
         shake_surface.fill((18, 18, 28)) # #12121c dark theme
         self.draw_grid(shake_surface)
         
@@ -645,7 +647,7 @@ class GameManager:
             mx, my = pygame.mouse.get_pos()
             angle = math.atan2(my - py, mx - px)
             
-            fov_surface = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+            fov_surface = self.fov_surface
             fov_surface.fill((0, 0, 0, 255))
             
             # Cut out the visible cone

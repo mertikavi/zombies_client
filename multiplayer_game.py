@@ -40,6 +40,10 @@ class MultiplayerGameManager:
         self.last_network_send = 0
         self.network_send_interval = 1000 // MULTIPLAYER_TICK_RATE  # ms
 
+        # Pre-allocated surfaces for rendering performance
+        self.shake_surface = pygame.Surface((self.width, self.height))
+        self.fov_surface = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+
         self.reset_game()
 
     def _init_remote_players(self):
@@ -838,7 +842,7 @@ class MultiplayerGameManager:
             offset_y = random.randint(-self.screen_shake, self.screen_shake)
             self.screen_shake -= 1
 
-        shake_surface = pygame.Surface((self.width, self.height))
+        shake_surface = self.shake_surface
         shake_surface.fill((18, 18, 28))
         self.draw_grid(shake_surface)
 
@@ -929,7 +933,7 @@ class MultiplayerGameManager:
             mx, my = pygame.mouse.get_pos()
             angle = math.atan2(my - py, mx - px)
 
-            fov_surface = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+            fov_surface = self.fov_surface
             fov_surface.fill((0, 0, 0, 255))
 
             fov_angle = math.radians(90)

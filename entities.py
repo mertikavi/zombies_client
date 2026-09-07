@@ -591,10 +591,20 @@ class RemotePlayer:
         self.is_alive = data.get("is_alive", self.is_alive)
         self.last_update_time = pygame.time.get_ticks()
     
-    def interpolate(self, lerp_factor=0.2):
+    def interpolate(self, lerp_factor=0.45):
         """Smoothly interpolate position towards target."""
-        self.x += (self.target_x - self.x) * lerp_factor
-        self.y += (self.target_y - self.y) * lerp_factor
+        dx = self.target_x - self.x
+        dy = self.target_y - self.y
+        dist = math.hypot(dx, dy)
+        if dist > 150:
+            self.x = self.target_x
+            self.y = self.target_y
+        elif dist > 1:
+            self.x += dx * lerp_factor
+            self.y += dy * lerp_factor
+        else:
+            self.x = self.target_x
+            self.y = self.target_y
     
     def draw(self, surface):
         """Draw the remote player."""

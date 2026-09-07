@@ -144,8 +144,8 @@ weapons_data = {
 
 # --- MULTIPLAYER ---
 MULTIPLAYER_SERVER_URL = "ws://localhost:8765/ws"
-MULTIPLAYER_TICK_RATE = 20  # Send updates per second (50ms interval)
-MULTIPLAYER_INTERPOLATION_SPEED = 0.2  # Lerp factor for remote player positions
+MULTIPLAYER_TICK_RATE = 30  # Send updates per second (33ms interval)
+MULTIPLAYER_INTERPOLATION_SPEED = 0.45  # Lerp factor for remote player positions
 MULTIPLAYER_MAX_PLAYERS = 4
 REMOTE_PLAYER_COLORS = [
     (0, 200, 255),    # Cyan

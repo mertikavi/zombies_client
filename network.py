@@ -89,12 +89,16 @@ class NetworkClient:
         """Send outgoing messages from the queue."""
         while self._running:
             try:
-                # Non-blocking check with timeout
-                try:
-                    msg = self._outgoing.get_nowait()
-                    await ws.send(json.dumps(msg))
-                except queue.Empty:
-                    await asyncio.sleep(0.01)  # 10ms poll interval
+                sent_any = False
+                while not self._outgoing.empty():
+                    try:
+                        msg = self._outgoing.get_nowait()
+                        await ws.send(json.dumps(msg))
+                        sent_any = True
+                    except queue.Empty:
+                        break
+                if not sent_any:
+                    await asyncio.sleep(0.005)
             except Exception as e:
                 print(f"[NETWORK] Send error: {e}")
                 break
