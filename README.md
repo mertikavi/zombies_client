@@ -56,8 +56,7 @@ zombieapocalypse.py   # Oyunun ana dosyası
 ---
 
 ## 👨‍💻 Geliştirici
-**İbrahim Öztepe**  
-📌 [GitHub Profilim](https://github.com/renardozt)
+📌 [GitHub Profilim](https://github.com/mertikavi)
 
 ---
 
