@@ -182,30 +182,111 @@ class Menu:
                     border_radius=5)
             surface.blit(txt, (self.width//2 - txt.get_width()//2 + offset, self.height//2 + y_start + 30 + i * 70))
 
+    def prompt_player_name(self, surface, title="OYUNCU ADI BELİRLE"):
+        """Modal text input dialog for player name."""
+        cur_name = game_settings.get("player_name", "")
+        input_text = cur_name
+        clock = pygame.time.Clock()
+
+        panel_w = 420
+        panel_h = 190
+        panel_x = self.width // 2 - panel_w // 2
+        panel_y = self.height // 2 - panel_h // 2
+
+        while True:
+            self._draw_background(surface)
+            self._draw_title(surface, title, y_offset=-160)
+
+            HUD(self.width, self.height).draw_glass_panel(surface, (panel_x, panel_y, panel_w, panel_h))
+
+            # Prompt label
+            lbl = assets.fonts['normal'].render("İsminizi girin:", True, (210, 220, 240))
+            surface.blit(lbl, (panel_x + 30, panel_y + 22))
+
+            # Input Box
+            input_rect = pygame.Rect(panel_x + 30, panel_y + 60, panel_w - 60, 42)
+            pygame.draw.rect(surface, (20, 25, 40), input_rect, border_radius=6)
+            pygame.draw.rect(surface, (80, 210, 255), input_rect, 2, border_radius=6)
+
+            # Cursor blink
+            cursor = "|" if (pygame.time.get_ticks() // 500) % 2 == 0 else ""
+            disp_txt = input_text + cursor
+            txt_surf = assets.fonts['normal'].render(disp_txt, True, WHITE)
+            surface.blit(txt_surf, (input_rect.x + 12, input_rect.centery - txt_surf.get_height() // 2))
+
+            # Buttons: Kaydet (ENTER), İptal (ESC)
+            btn_save = pygame.Rect(panel_x + 30, panel_y + 122, 170, 42)
+            btn_cancel = pygame.Rect(panel_x + panel_w - 200, panel_y + 122, 170, 42)
+
+            pygame.draw.rect(surface, (30, 110, 60), btn_save, border_radius=6)
+            pygame.draw.rect(surface, (60, 210, 100), btn_save, 1, border_radius=6)
+            s_txt = assets.fonts['small'].render("Kaydet (ENTER)", True, WHITE)
+            surface.blit(s_txt, (btn_save.centerx - s_txt.get_width() // 2, btn_save.centery - s_txt.get_height() // 2))
+
+            pygame.draw.rect(surface, (70, 35, 40), btn_cancel, border_radius=6)
+            pygame.draw.rect(surface, (180, 60, 70), btn_cancel, 1, border_radius=6)
+            c_txt = assets.fonts['small'].render("İptal (ESC)", True, WHITE)
+            surface.blit(c_txt, (btn_cancel.centerx - c_txt.get_width() // 2, btn_cancel.centery - c_txt.get_height() // 2))
+
+            pygame.display.flip()
+
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    return None
+                elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                    m_x, m_y = event.pos
+                    if btn_save.collidepoint(m_x, m_y):
+                        val = input_text.strip()
+                        if val:
+                            game_settings["player_name"] = val
+                            save_settings()
+                            return val
+                    elif btn_cancel.collidepoint(m_x, m_y):
+                        return None
+                elif event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_ESCAPE:
+                        return None
+                    elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
+                        val = input_text.strip()
+                        if val:
+                            game_settings["player_name"] = val
+                            save_settings()
+                            return val
+                    elif event.key == pygame.K_BACKSPACE:
+                        input_text = input_text[:-1]
+                    else:
+                        if event.unicode and event.unicode.isprintable() and len(input_text) < 18:
+                            input_text += event.unicode
+
+            clock.tick(60)
+
     def _get_settings_layout(self):
         panel_w = 680
-        panel_h = 360
+        panel_h = 365
         panel_x = self.width // 2 - panel_w // 2
-        panel_y = self.height // 2 - 170
+        panel_y = self.height // 2 - 180
 
         col1_x = panel_x + 25
         col2_x = panel_x + 355
         btn_w = 300
-        btn_h = 44
+        btn_h = 42
+        step_y = 48
 
         rects = [
-            # Col 1: Oyun
-            pygame.Rect(col1_x, panel_y + 55, btn_w, btn_h),   # 0: Zorluk
-            pygame.Rect(col1_x, panel_y + 110, btn_w, btn_h),  # 1: Karakter Rengi
-            pygame.Rect(col1_x, panel_y + 165, btn_w, btn_h),  # 2: Mermi Rengi
-            pygame.Rect(col1_x, panel_y + 220, btn_w, btn_h),  # 3: FOV
-            # Col 2: Sistem & Ekran
-            pygame.Rect(col2_x, panel_y + 55, btn_w, btn_h),   # 4: Müzik
-            pygame.Rect(col2_x, panel_y + 110, btn_w, btn_h),  # 5: Ses Efektleri
-            pygame.Rect(col2_x, panel_y + 165, btn_w, btn_h),  # 6: FPS Göstergesi
-            pygame.Rect(col2_x, panel_y + 220, btn_w, btn_h),  # 7: Ekran Modu
+            # Col 1: Oyun & Görüntü
+            pygame.Rect(col1_x, panel_y + 50 + 0 * step_y, btn_w, btn_h),   # 0: Zorluk
+            pygame.Rect(col1_x, panel_y + 50 + 1 * step_y, btn_w, btn_h),   # 1: Karakter Rengi
+            pygame.Rect(col1_x, panel_y + 50 + 2 * step_y, btn_w, btn_h),   # 2: Mermi Rengi
+            pygame.Rect(col1_x, panel_y + 50 + 3 * step_y, btn_w, btn_h),   # 3: FOV
+            pygame.Rect(col1_x, panel_y + 50 + 4 * step_y, btn_w, btn_h),   # 4: Grafik Kalitesi
+            # Col 2: Sistem & Profil
+            pygame.Rect(col2_x, panel_y + 50 + 0 * step_y, btn_w, btn_h),   # 5: Oyuncu Adı
+            pygame.Rect(col2_x, panel_y + 50 + 1 * step_y, btn_w, btn_h),   # 6: Müzik
+            pygame.Rect(col2_x, panel_y + 50 + 2 * step_y, btn_w, btn_h),   # 7: Ses Efektleri
+            pygame.Rect(col2_x, panel_y + 50 + 3 * step_y, btn_w, btn_h),   # 8: FPS Göstergesi
+            pygame.Rect(col2_x, panel_y + 50 + 4 * step_y, btn_w, btn_h),   # 9: Ekran Modu
             # Bottom: Geri
-            pygame.Rect(panel_x + panel_w // 2 - 120, panel_y + 290, 240, 46) # 8: Geri
+            pygame.Rect(panel_x + panel_w // 2 - 120, panel_y + 302, 240, 44) # 10: Geri
         ]
         return panel_x, panel_y, panel_w, panel_h, rects
 
@@ -213,31 +294,39 @@ class Menu:
         panel_x, panel_y, panel_w, panel_h, rects = self._get_settings_layout()
         HUD(self.width, self.height).draw_glass_panel(surface, (panel_x, panel_y, panel_w, panel_h))
 
-        char_c_name = next(k for k, v in CHARACTER_COLORS.items() if v == game_settings['character_color'])
-        bull_c_name = next(k for k, v in BULLET_COLORS.items() if v == game_settings['bullet_color'])
+        char_c_name = next((k for k, v in CHARACTER_COLORS.items() if v == game_settings['character_color']), "Sarı")
+        bull_c_name = next((k for k, v in BULLET_COLORS.items() if v == game_settings['bullet_color']), "Sarı")
 
         # Headers
         h1 = assets.fonts['small'].render("OYUN AYARLARI", True, (160, 200, 255))
-        surface.blit(h1, (panel_x + 25, panel_y + 22))
-        pygame.draw.line(surface, (70, 90, 120), (panel_x + 25, panel_y + 44), (panel_x + 325, panel_y + 44))
+        surface.blit(h1, (panel_x + 25, panel_y + 18))
+        pygame.draw.line(surface, (70, 90, 120), (panel_x + 25, panel_y + 40), (panel_x + 325, panel_y + 40))
 
-        h2 = assets.fonts['small'].render("SES & GÖRÜNTÜ", True, (160, 200, 255))
-        surface.blit(h2, (panel_x + 355, panel_y + 22))
-        pygame.draw.line(surface, (70, 90, 120), (panel_x + 355, panel_y + 44), (panel_x + 655, panel_y + 44))
+        h2 = assets.fonts['small'].render("SİSTEM & PROFİL", True, (160, 200, 255))
+        surface.blit(h2, (panel_x + 355, panel_y + 18))
+        pygame.draw.line(surface, (70, 90, 120), (panel_x + 355, panel_y + 40), (panel_x + 655, panel_y + 40))
 
         diff_col = (100, 255, 100) if game_settings["difficulty"] == "Kolay" else (255, 215, 0) if game_settings["difficulty"] == "Normal" else (255, 80, 80)
+        g_qual = game_settings.get("graphics_quality", "Orta")
+        g_qual_col = (80, 240, 120) if g_qual == "Yüksek" else (255, 215, 0) if g_qual == "Orta" else (100, 210, 255)
+
+        p_name = game_settings.get("player_name", "").strip() or "Belirtilmedi"
+        p_name_col = (100, 220, 255) if game_settings.get("player_name", "").strip() else (140, 140, 150)
+
         items = [
             ("Zorluk", game_settings["difficulty"], diff_col, None),
             ("Karakter Rengi", char_c_name, WHITE, game_settings["character_color"]),
             ("Mermi Rengi", bull_c_name, WHITE, game_settings["bullet_color"]),
             ("Görüş Alanı (FOV)", "Açık" if game_settings["fov"] else "Kapalı", (80, 240, 120) if game_settings["fov"] else (160, 80, 80), None),
+            ("Grafik Kalitesi", g_qual, g_qual_col, None),
+            ("Oyuncu Adı", p_name, p_name_col, None),
             ("Müzik", "Açık" if game_settings["music"] else "Kapalı", (80, 240, 120) if game_settings["music"] else (160, 80, 80), None),
             ("Ses Efektleri", "Açık" if game_settings["sound"] else "Kapalı", (80, 240, 120) if game_settings["sound"] else (160, 80, 80), None),
             ("FPS Göstergesi", "Açık" if game_settings.get("show_fps", True) else "Kapalı", (80, 240, 120) if game_settings.get("show_fps", True) else (160, 80, 80), None),
             ("Ekran Modu", game_settings.get("display_mode", "Tam Ekran"), (100, 210, 255), None),
         ]
 
-        for i in range(8):
+        for i in range(10):
             r = rects[i]
             is_sel = (selected == i)
             lbl, val_str, val_col, dot_col = items[i]
@@ -259,9 +348,9 @@ class Menu:
 
             surface.blit(val_surf, (val_x, r.centery - val_surf.get_height() // 2))
 
-        # Back button (index 8)
-        r_back = rects[8]
-        is_sel_back = (selected == 8)
+        # Back button (index 10)
+        r_back = rects[10]
+        is_sel_back = (selected == 10)
         bg_b = (70, 35, 40) if is_sel_back else (35, 20, 25)
         border_b = (240, 80, 80) if is_sel_back else (120, 50, 60)
         pygame.draw.rect(surface, bg_b, r_back, border_radius=6)
@@ -344,29 +433,29 @@ class Menu:
                             selected = (selected + 1) % opts_len
                     else:
                         if event.key == pygame.K_UP:
-                            if selected == 8:
-                                selected = 3
-                            elif selected in (0, 1, 2, 3):
-                                selected = (selected - 1) % 4
-                            elif selected in (4, 5, 6, 7):
-                                selected = 4 + (selected - 4 - 1) % 4
+                            if selected == 10:
+                                selected = 4
+                            elif selected in (0, 1, 2, 3, 4):
+                                selected = (selected - 1) % 5
+                            elif selected in (5, 6, 7, 8, 9):
+                                selected = 5 + (selected - 5 - 1) % 5
                         elif event.key == pygame.K_DOWN:
-                            if selected in (0, 1, 2):
+                            if selected in (0, 1, 2, 3):
                                 selected += 1
-                            elif selected == 3:
-                                selected = 8
-                            elif selected in (4, 5, 6):
+                            elif selected == 4:
+                                selected = 10
+                            elif selected in (5, 6, 7, 8):
                                 selected += 1
-                            elif selected == 7:
-                                selected = 8
-                            elif selected == 8:
+                            elif selected == 9:
+                                selected = 10
+                            elif selected == 10:
                                 selected = 0
                         elif event.key == pygame.K_LEFT:
-                            if selected in (4, 5, 6, 7):
-                                selected -= 4
+                            if selected in (5, 6, 7, 8, 9):
+                                selected -= 5
                         elif event.key == pygame.K_RIGHT:
-                            if selected in (0, 1, 2, 3):
-                                selected += 4
+                            if selected in (0, 1, 2, 3, 4):
+                                selected += 5
 
                     if event.key == pygame.K_ESCAPE:
                         if menu_state == "settings":
@@ -404,32 +493,49 @@ class Menu:
                             diffs = ["Kolay", "Normal", "Zor"]
                             idx = diffs.index(game_settings["difficulty"])
                             game_settings["difficulty"] = diffs[(idx + 1) % 3]
+                            save_settings()
                         elif selected == 1:
                             colors = list(CHARACTER_COLORS.items())
                             idx = next(i for i, (k, v) in enumerate(colors) if v == game_settings["character_color"])
                             game_settings["character_color"] = colors[(idx + 1) % len(colors)][1]
                             assets.recolor_weapons(game_settings["character_color"])
+                            save_settings()
                         elif selected == 2:
                             colors = list(BULLET_COLORS.items())
                             idx = next(i for i, (k, v) in enumerate(colors) if v == game_settings["bullet_color"])
                             game_settings["bullet_color"] = colors[(idx + 1) % len(colors)][1]
+                            save_settings()
                         elif selected == 3:
                             game_settings["fov"] = not game_settings["fov"]
+                            save_settings()
                         elif selected == 4:
+                            qualities = ["Düşük", "Orta", "Yüksek"]
+                            cur_q = game_settings.get("graphics_quality", "Orta")
+                            idx = qualities.index(cur_q) if cur_q in qualities else 1
+                            game_settings["graphics_quality"] = qualities[(idx + 1) % len(qualities)]
+                            save_settings()
+                        elif selected == 5:
+                            # Set Player Name
+                            self.prompt_player_name(surface)
+                        elif selected == 6:
                             game_settings["music"] = not game_settings["music"]
                             assets.update_volumes()
-                        elif selected == 5:
+                            save_settings()
+                        elif selected == 7:
                             game_settings["sound"] = not game_settings["sound"]
                             assets.update_volumes()
-                        elif selected == 6:
+                            save_settings()
+                        elif selected == 8:
                             game_settings["show_fps"] = not game_settings.get("show_fps", True)
-                        elif selected == 7:
+                            save_settings()
+                        elif selected == 9:
                             # Cycle display mode
                             modes = ["Tam Ekran", "Kenarlıksız"]
                             current_mode = game_settings.get("display_mode", "Tam Ekran")
                             idx = modes.index(current_mode) if current_mode in modes else 0
                             new_mode = modes[(idx + 1) % len(modes)]
                             game_settings["display_mode"] = new_mode
+                            save_settings()
                             # Apply display mode change
                             info = pygame.display.Info()
                             w, h = info.current_w, info.current_h
@@ -445,7 +551,7 @@ class Menu:
                                 self.height = h
                                 game_settings["width"] = w
                                 game_settings["height"] = h
-                        elif selected == 8:
+                        elif selected == 10:
                             menu_state = "main"
                             selected = 0
 
@@ -1057,6 +1163,17 @@ class Menu:
     def show_multiplayer_menu(self, surface, network):
         """Show the multiplayer menu: room browser, create room, join room."""
         clock = pygame.time.Clock()
+
+        # Check if player_name is configured. If not, prompt user once and save it!
+        saved_name = game_settings.get("player_name", "").strip()
+        if not saved_name:
+            prompted_name = self.prompt_player_name(surface, title="ÇOK OYUNCULU - İSİM BELİRLE")
+            if not prompted_name:
+                return ("back", None)
+            saved_name = prompted_name
+            game_settings["player_name"] = saved_name
+            save_settings()
+
         state = "browser"  # browser, create, join, lobby
         selected = 0
         rooms_list = []
@@ -1066,11 +1183,11 @@ class Menu:
 
         # Text input fields
         input_fields = {
-            "player_name": "",
+            "player_name": saved_name,
             "room_name": "",
             "password": ""
         }
-        active_field = "player_name"
+        active_field = "room_name"
 
         # Lobby state
         lobby_players = []
@@ -1192,8 +1309,8 @@ class Menu:
 
                         if create_rect.collidepoint(m_x, m_y):
                             state = "create"
-                            active_field = "player_name"
-                            input_fields["player_name"] = ""
+                            active_field = "room_name"
+                            input_fields["player_name"] = game_settings.get("player_name", saved_name)
                             input_fields["room_name"] = ""
                             input_fields["password"] = ""
                             selected = 0
@@ -1213,21 +1330,24 @@ class Menu:
                                         error_msg = "Oda dolu!"
                                         error_timer = current_time
                                     else:
-                                        selected_room = room
-                                        state = "join"
-                                        input_fields["player_name"] = ""
-                                        input_fields["password"] = ""
-                                        active_field = "player_name"
+                                        pname = game_settings.get("player_name", saved_name).strip() or "Oyuncu"
+                                        if room.get("has_password"):
+                                            selected_room = room
+                                            state = "join"
+                                            input_fields["player_name"] = pname
+                                            input_fields["password"] = ""
+                                            active_field = "password"
+                                        else:
+                                            network.join_room(room["room_id"], pname, None)
                                     break
                     elif state == "create":
                         panel_w = 450
                         panel_x = self.width//2 - panel_w//2
-                        panel_y = self.height//2 - 150
+                        panel_y = self.height//2 - 130
                         # Click on input fields to focus them
                         field_configs = [
-                            ("player_name", panel_y + 65),
-                            ("room_name", panel_y + 155),
-                            ("password", panel_y + 245),
+                            ("room_name", panel_y + 80),
+                            ("password", panel_y + 148),
                         ]
                         clicked_field = False
                         for field_key, fy in field_configs:
@@ -1239,16 +1359,13 @@ class Menu:
 
                         if not clicked_field:
                             # Check Create / Back buttons
-                            btn_create = pygame.Rect(panel_x + 30, panel_y + 300, 185, 42)
-                            btn_back = pygame.Rect(panel_x + panel_w - 215, panel_y + 300, 185, 42)
+                            btn_create = pygame.Rect(panel_x + 30, panel_y + 225, 185, 42)
+                            btn_back = pygame.Rect(panel_x + panel_w - 215, panel_y + 225, 185, 42)
                             if btn_create.collidepoint(m_x, m_y):
-                                pname = input_fields["player_name"].strip()
+                                pname = game_settings.get("player_name", saved_name).strip() or "Oyuncu"
                                 rname = input_fields["room_name"].strip()
                                 pw = input_fields["password"].strip() or None
-                                if not pname:
-                                    error_msg = "Oyuncu adı boş olamaz!"
-                                    error_timer = current_time
-                                elif not rname:
+                                if not rname:
                                     error_msg = "Oda adı boş olamaz!"
                                     error_timer = current_time
                                 else:
@@ -1261,30 +1378,17 @@ class Menu:
                     elif state == "join":
                         panel_w = 450
                         panel_x = self.width//2 - panel_w//2
-                        panel_y = self.height//2 - 100
-                        field_configs = [
-                            ("player_name", panel_y + 65),
-                            ("password", panel_y + 155),
-                        ]
-                        clicked_field = False
-                        for field_key, fy in field_configs:
-                            field_rect = pygame.Rect(panel_x + 30, fy, panel_w - 60, 35)
-                            if field_rect.collidepoint(m_x, m_y):
-                                active_field = field_key
-                                clicked_field = True
-                                break
-
-                        if not clicked_field:
-                            # Check Join / Back buttons
-                            btn_join = pygame.Rect(panel_x + 30, panel_y + 215, 185, 42)
-                            btn_back = pygame.Rect(panel_x + panel_w - 215, panel_y + 215, 185, 42)
+                        panel_y = self.height//2 - 90
+                        field_rect = pygame.Rect(panel_x + 30, panel_y + 80, panel_w - 60, 35)
+                        if field_rect.collidepoint(m_x, m_y):
+                            active_field = "password"
+                        else:
+                            btn_join = pygame.Rect(panel_x + 30, panel_y + 145, 185, 42)
+                            btn_back = pygame.Rect(panel_x + panel_w - 215, panel_y + 145, 185, 42)
                             if btn_join.collidepoint(m_x, m_y):
-                                pname = input_fields["player_name"].strip()
+                                pname = game_settings.get("player_name", saved_name).strip() or "Oyuncu"
                                 pw = input_fields["password"].strip() or None
-                                if not pname:
-                                    error_msg = "Oyuncu adı boş olamaz!"
-                                    error_timer = current_time
-                                elif selected_room:
+                                if selected_room:
                                     network.join_room(selected_room["room_id"], pname, pw)
                             elif btn_back.collidepoint(m_x, m_y):
                                 state = "browser"
@@ -1376,17 +1480,16 @@ class Menu:
                             selected = min(len(rooms_list), selected + 1)  # +1 for "Create Room"
                         elif event.key == pygame.K_r:
                             network.list_rooms()
-                        elif event.key == pygame.K_RETURN:
+                        elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
                             if selected == 0:
                                 # Create room
                                 state = "create"
-                                active_field = "player_name"
-                                input_fields["player_name"] = ""
+                                active_field = "room_name"
+                                input_fields["player_name"] = game_settings.get("player_name", saved_name)
                                 input_fields["room_name"] = ""
                                 input_fields["password"] = ""
                                 selected = 0
                             elif selected > 0 and selected <= len(rooms_list):
-                                # Join room - show join dialog
                                 room = rooms_list[selected - 1]
                                 if room.get("game_started"):
                                     error_msg = "Oyun zaten başlamış!"
@@ -1395,30 +1498,34 @@ class Menu:
                                     error_msg = "Oda dolu!"
                                     error_timer = current_time
                                 else:
-                                    selected_room = room
-                                    state = "join"
-                                    input_fields["player_name"] = ""
-                                    input_fields["password"] = ""
-                                    active_field = "player_name"
+                                    pname = game_settings.get("player_name", saved_name).strip() or "Oyuncu"
+                                    if room.get("has_password"):
+                                        selected_room = room
+                                        state = "join"
+                                        input_fields["password"] = ""
+                                        active_field = "password"
+                                    else:
+                                        network.join_room(room["room_id"], pname, None)
 
                     elif state == "create":
                         if event.key == pygame.K_TAB:
-                            fields = ["player_name", "room_name", "password"]
-                            idx = fields.index(active_field)
+                            fields = ["room_name", "password"]
+                            idx = fields.index(active_field) if active_field in fields else 0
                             active_field = fields[(idx + 1) % len(fields)]
-                        elif event.key == pygame.K_RETURN:
-                            pname = input_fields["player_name"].strip()
+                        elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
+                            pname = game_settings.get("player_name", saved_name).strip() or "Oyuncu"
                             rname = input_fields["room_name"].strip()
                             pw = input_fields["password"].strip() or None
 
-                            if not pname:
-                                error_msg = "Oyuncu adı boş olamaz!"
-                                error_timer = current_time
-                            elif not rname:
+                            if not rname:
                                 error_msg = "Oda adı boş olamaz!"
                                 error_timer = current_time
                             else:
                                 network.create_room(rname, pname, pw)
+                        elif event.key == pygame.K_ESCAPE:
+                            state = "browser"
+                            selected = 0
+                            network.list_rooms()
                         elif event.key == pygame.K_BACKSPACE:
                             input_fields[active_field] = input_fields[active_field][:-1]
                         else:
@@ -1426,24 +1533,20 @@ class Menu:
                                 input_fields[active_field] += event.unicode
 
                     elif state == "join":
-                        if event.key == pygame.K_TAB:
-                            fields = ["player_name", "password"]
-                            idx = fields.index(active_field)
-                            active_field = fields[(idx + 1) % len(fields)]
-                        elif event.key == pygame.K_RETURN:
-                            pname = input_fields["player_name"].strip()
+                        if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
+                            pname = game_settings.get("player_name", saved_name).strip() or "Oyuncu"
                             pw = input_fields["password"].strip() or None
-
-                            if not pname:
-                                error_msg = "Oyuncu adı boş olamaz!"
-                                error_timer = current_time
-                            elif selected_room:
+                            if selected_room:
                                 network.join_room(selected_room["room_id"], pname, pw)
+                        elif event.key == pygame.K_ESCAPE:
+                            state = "browser"
+                            selected = 0
+                            network.list_rooms()
                         elif event.key == pygame.K_BACKSPACE:
-                            input_fields[active_field] = input_fields[active_field][:-1]
+                            input_fields["password"] = input_fields["password"][:-1]
                         else:
-                            if event.unicode and event.unicode.isprintable() and len(input_fields[active_field]) < 20:
-                                input_fields[active_field] += event.unicode
+                            if event.unicode and event.unicode.isprintable() and len(input_fields["password"]) < 20:
+                                input_fields["password"] += event.unicode
 
                     elif state == "lobby":
                         if lobby_chat_active:
@@ -1502,6 +1605,11 @@ class Menu:
             pygame.draw.rect(surface, (255, 255, 255, 20), (panel_x + 10, y - 5, panel_w - 20, 40), border_radius=5)
         create_txt = assets.fonts['normal'].render("+ Yeni Oda Oluştur", True, create_color)
         surface.blit(create_txt, (panel_x + 20, y))
+
+        # Active player name badge
+        pname_badge = game_settings.get("player_name", "").strip() or "Oyuncu"
+        p_surf = assets.fonts['small'].render(f"Oyuncu: {pname_badge}", True, (100, 210, 255))
+        surface.blit(p_surf, (panel_x + panel_w - p_surf.get_width() - 20, y + 5))
 
         # Separator
         y += 50
@@ -1567,26 +1675,30 @@ class Menu:
 
     def _draw_create_room(self, surface, fields, active_field, error_msg=""):
         """Draw the create room dialog."""
-        self._draw_title(surface, "ODA OLUŞTUR", y_offset=-280)
+        self._draw_title(surface, "ODA OLUŞTUR", y_offset=-250)
 
         panel_w = 450
-        panel_h = 370
+        panel_h = 290
         panel_x = self.width//2 - panel_w//2
-        panel_y = self.height//2 - 150
+        panel_y = self.height//2 - 130
         HUD(self.width, self.height).draw_glass_panel(surface, (panel_x, panel_y, panel_w, panel_h))
 
+        # Current player badge
+        pname = game_settings.get("player_name", fields.get("player_name", "")).strip() or "Oyuncu"
+        p_badge = assets.fonts['small'].render(f"Oyuncu: {pname}", True, (100, 210, 255))
+        surface.blit(p_badge, (panel_x + 30, panel_y + 18))
+
         field_configs = [
-            ("Oyuncu Adı:", "player_name"),
             ("Oda Adı:", "room_name"),
             ("Şifre (opsiyonel):", "password"),
         ]
 
-        y = panel_y + 30
+        y = panel_y + 48
         for label, field_key in field_configs:
             # Label
             lbl = assets.fonts['normal'].render(label, True, WHITE)
             surface.blit(lbl, (panel_x + 30, y))
-            y += 35
+            y += 32
 
             # Input box
             is_active = active_field == field_key
@@ -1595,21 +1707,20 @@ class Menu:
             pygame.draw.rect(surface, box_color, (panel_x + 30, y, panel_w - 60, 35), 2, border_radius=5)
 
             # Text content
-            display_text = fields[field_key]
+            display_text = fields.get(field_key, "")
             if field_key == "password" and display_text:
                 display_text = "*" * len(display_text)
             if is_active:
-                # Blinking cursor
                 cursor = "|" if (pygame.time.get_ticks() // 500) % 2 == 0 else ""
                 display_text += cursor
 
             txt_surf = assets.fonts['normal'].render(display_text, True, WHITE)
             surface.blit(txt_surf, (panel_x + 40, y + 5))
-            y += 55
+            y += 48
 
         # Buttons
-        btn_create = pygame.Rect(panel_x + 30, panel_y + 300, 185, 42)
-        btn_back = pygame.Rect(panel_x + panel_w - 215, panel_y + 300, 185, 42)
+        btn_create = pygame.Rect(panel_x + 30, panel_y + 225, 185, 42)
+        btn_back = pygame.Rect(panel_x + panel_w - 215, panel_y + 225, 185, 42)
         pygame.draw.rect(surface, (30, 120, 60), btn_create, border_radius=6)
         pygame.draw.rect(surface, (60, 220, 100), btn_create, 1, border_radius=6)
         c_txt = assets.fonts['normal'].render("Oluştur (ENTER)", True, WHITE)
@@ -1627,44 +1738,35 @@ class Menu:
 
     def _draw_join_room_dialog(self, surface, fields, active_field, room_name, error_msg=""):
         """Draw the join room dialog."""
-        self._draw_title(surface, f"ODAYA KATIL: {room_name}", y_offset=-250)
+        self._draw_title(surface, f"ODAYA KATIL: {room_name}", y_offset=-220)
 
         panel_w = 450
-        panel_h = 280
+        panel_h = 210
         panel_x = self.width//2 - panel_w//2
-        panel_y = self.height//2 - 100
+        panel_y = self.height//2 - 90
         HUD(self.width, self.height).draw_glass_panel(surface, (panel_x, panel_y, panel_w, panel_h))
 
-        field_configs = [
-            ("Oyuncu Adı:", "player_name"),
-            ("Şifre:", "password"),
-        ]
+        # Current player badge
+        pname = game_settings.get("player_name", fields.get("player_name", "")).strip() or "Oyuncu"
+        p_badge = assets.fonts['small'].render(f"Oyuncu: {pname}", True, (100, 210, 255))
+        surface.blit(p_badge, (panel_x + 30, panel_y + 18))
 
-        y = panel_y + 30
-        for label, field_key in field_configs:
-            lbl = assets.fonts['normal'].render(label, True, WHITE)
-            surface.blit(lbl, (panel_x + 30, y))
-            y += 35
+        lbl = assets.fonts['normal'].render("Oda Şifresi:", True, WHITE)
+        surface.blit(lbl, (panel_x + 30, panel_y + 48))
 
-            is_active = active_field == field_key
-            box_color = (50, 255, 100) if is_active else (100, 100, 100)
-            pygame.draw.rect(surface, (20, 20, 35), (panel_x + 30, y, panel_w - 60, 35), border_radius=5)
-            pygame.draw.rect(surface, box_color, (panel_x + 30, y, panel_w - 60, 35), 2, border_radius=5)
+        box_color = (50, 255, 100) if active_field == "password" else (100, 100, 100)
+        pygame.draw.rect(surface, (20, 20, 35), (panel_x + 30, panel_y + 80, panel_w - 60, 35), border_radius=5)
+        pygame.draw.rect(surface, box_color, (panel_x + 30, panel_y + 80, panel_w - 60, 35), 2, border_radius=5)
 
-            display_text = fields[field_key]
-            if field_key == "password" and display_text:
-                display_text = "*" * len(display_text)
-            if is_active:
-                cursor = "|" if (pygame.time.get_ticks() // 500) % 2 == 0 else ""
-                display_text += cursor
-
-            txt_surf = assets.fonts['normal'].render(display_text, True, WHITE)
-            surface.blit(txt_surf, (panel_x + 40, y + 5))
-            y += 55
+        display_text = "*" * len(fields.get("password", ""))
+        cursor = "|" if (pygame.time.get_ticks() // 500) % 2 == 0 else ""
+        display_text += cursor
+        txt_surf = assets.fonts['normal'].render(display_text, True, WHITE)
+        surface.blit(txt_surf, (panel_x + 40, panel_y + 85))
 
         # Buttons
-        btn_join = pygame.Rect(panel_x + 30, panel_y + 215, 185, 42)
-        btn_back = pygame.Rect(panel_x + panel_w - 215, panel_y + 215, 185, 42)
+        btn_join = pygame.Rect(panel_x + 30, panel_y + 145, 185, 42)
+        btn_back = pygame.Rect(panel_x + panel_w - 215, panel_y + 145, 185, 42)
         pygame.draw.rect(surface, (30, 120, 60), btn_join, border_radius=6)
         pygame.draw.rect(surface, (60, 220, 100), btn_join, 1, border_radius=6)
         j_txt = assets.fonts['normal'].render("Katıl (ENTER)", True, WHITE)

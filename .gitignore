@@ -3,3 +3,4 @@ build
 dist
 main.exe
 main.spec
+settings.json

@@ -1,6 +1,7 @@
 import pygame
 import math
 import random
+from config import game_settings
 
 _particle_cache = {}
 
@@ -87,6 +88,11 @@ class ParticleSystem:
         self.floating_texts.append(FloatingText(x + random.uniform(-10, 10), y, text, color))
         
     def add_blood(self, x, y, count=10, color=(200, 0, 0)):
+        g_qual = game_settings.get("graphics_quality", "Orta")
+        if g_qual == "Düşük":
+            count = max(3, count // 3)
+        elif g_qual == "Orta":
+            count = max(5, int(count * 0.7))
         for _ in range(count):
             angle = random.uniform(0, math.pi * 2)
             speed = random.uniform(2, 6)
@@ -112,11 +118,14 @@ class ParticleSystem:
     def update(self, dt):
         self.particles = [p for p in self.particles if p.update(dt)]
         self.floating_texts = [ft for ft in self.floating_texts if ft.update(dt)]
-        # Cap particle counts for performance
-        if len(self.particles) > 100:
-            self.particles = self.particles[-100:]
-        if len(self.floating_texts) > 25:
-            self.floating_texts = self.floating_texts[-25:]
+        # Cap particle counts dynamically based on graphics quality
+        g_qual = game_settings.get("graphics_quality", "Orta")
+        max_p = 200 if g_qual == "Yüksek" else (100 if g_qual == "Orta" else 50)
+        max_ft = 30 if g_qual == "Yüksek" else (20 if g_qual == "Orta" else 12)
+        if len(self.particles) > max_p:
+            self.particles = self.particles[-max_p:]
+        if len(self.floating_texts) > max_ft:
+            self.floating_texts = self.floating_texts[-max_ft:]
 
     def draw(self, surface, font=None):
         for p in self.particles:

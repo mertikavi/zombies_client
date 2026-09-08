@@ -1,4 +1,5 @@
-import pygame
+import os
+import json
 
 # --- COLORS ---
 WHITE = (255, 255, 255)
@@ -36,7 +37,10 @@ BULLET_COLORS = {
 }
 
 # --- GLOBAL GAME SETTINGS ---
+SETTINGS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "settings.json")
+
 game_settings = {
+    "player_name": "",
     "difficulty": "Normal",
     "character_color": YELLOW,
     "bullet_color": YELLOW,
@@ -45,9 +49,76 @@ game_settings = {
     "fov": True,
     "display_mode": "Tam Ekran",
     "show_fps": True,
+    "graphics_quality": "Orta",  # Düşük, Orta, Yüksek
     "width": 1920, # Default, will be updated by pygame.display.Info
     "height": 1080
 }
+
+def save_settings():
+    """Save current game settings to settings.json."""
+    try:
+        char_c_name = next((k for k, v in CHARACTER_COLORS.items() if v == game_settings.get('character_color')), "Sarı")
+        bull_c_name = next((k for k, v in BULLET_COLORS.items() if v == game_settings.get('bullet_color')), "Sarı")
+        data = {
+            "player_name": game_settings.get("player_name", "").strip(),
+            "difficulty": game_settings.get("difficulty", "Normal"),
+            "character_color": char_c_name,
+            "bullet_color": bull_c_name,
+            "music": bool(game_settings.get("music", True)),
+            "sound": bool(game_settings.get("sound", True)),
+            "fov": bool(game_settings.get("fov", True)),
+            "display_mode": game_settings.get("display_mode", "Tam Ekran"),
+            "show_fps": bool(game_settings.get("show_fps", True)),
+            "graphics_quality": game_settings.get("graphics_quality", "Orta")
+        }
+        with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=4, ensure_ascii=False)
+    except Exception as e:
+        print(f"[SETTINGS] Save failed: {e}")
+
+def load_settings():
+    """Load settings from settings.json or create defaults if not found."""
+    if not os.path.exists(SETTINGS_FILE):
+        save_settings()
+        return
+
+    try:
+        with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        if "player_name" in data:
+            game_settings["player_name"] = str(data["player_name"]).strip()
+        if "difficulty" in data and data["difficulty"] in ("Kolay", "Normal", "Zor"):
+            game_settings["difficulty"] = data["difficulty"]
+        if "character_color" in data:
+            val = data["character_color"]
+            if val in CHARACTER_COLORS:
+                game_settings["character_color"] = CHARACTER_COLORS[val]
+            elif isinstance(val, (list, tuple)) and len(val) >= 3:
+                game_settings["character_color"] = tuple(val[:3])
+        if "bullet_color" in data:
+            val = data["bullet_color"]
+            if val in BULLET_COLORS:
+                game_settings["bullet_color"] = BULLET_COLORS[val]
+            elif isinstance(val, (list, tuple)) and len(val) >= 3:
+                game_settings["bullet_color"] = tuple(val[:3])
+        if "music" in data:
+            game_settings["music"] = bool(data["music"])
+        if "sound" in data:
+            game_settings["sound"] = bool(data["sound"])
+        if "fov" in data:
+            game_settings["fov"] = bool(data["fov"])
+        if "display_mode" in data and data["display_mode"] in ("Tam Ekran", "Kenarlıksız"):
+            game_settings["display_mode"] = data["display_mode"]
+        if "show_fps" in data:
+            game_settings["show_fps"] = bool(data["show_fps"])
+        if "graphics_quality" in data and data["graphics_quality"] in ("Düşük", "Orta", "Yüksek"):
+            game_settings["graphics_quality"] = data["graphics_quality"]
+    except Exception as e:
+        print(f"[SETTINGS] Load failed: {e}")
+        save_settings()
+
+load_settings()
 
 # --- ENTITY CONSTANTS ---
 PLAYER_SIZE = 40

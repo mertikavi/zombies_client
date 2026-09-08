@@ -91,14 +91,16 @@ class Player:
         y = self.y + self.size // 2
         angle = math.atan2(mouse_pos[1] - y, mouse_pos[0] - x)
         
-        # Player Shadow
-        shadow_size = int(PLAYER_SIZE * 0.7 * 2)
-        shadow_surf = get_shadow_surface(shadow_size, shadow_size, alpha=100, is_ellipse=True)
-        surface.blit(shadow_surf, (x - shadow_size//2, y - shadow_size//2))
+        g_qual = game_settings.get("graphics_quality", "Orta")
         
-        # Player Glow (Radial Gradient)
-        glow_surf = create_glow_surface(int(PLAYER_SIZE * 2), (50, 100, 255), max_alpha=120)
-        surface.blit(glow_surf, (x - PLAYER_SIZE*2, y - PLAYER_SIZE*2), special_flags=pygame.BLEND_RGBA_ADD)
+        # Player Shadow & Glow
+        if g_qual != "Düşük":
+            shadow_size = int(PLAYER_SIZE * 0.7 * 2)
+            shadow_surf = get_shadow_surface(shadow_size, shadow_size, alpha=100, is_ellipse=True)
+            surface.blit(shadow_surf, (x - shadow_size//2, y - shadow_size//2))
+            
+            glow_surf = create_glow_surface(int(PLAYER_SIZE * 2), (50, 100, 255), max_alpha=120)
+            surface.blit(glow_surf, (x - PLAYER_SIZE*2, y - PLAYER_SIZE*2), special_flags=pygame.BLEND_RGBA_ADD)
 
         # Draw Player Ship Model instead of simple triangle
         p1 = (x + math.cos(angle)*PLAYER_SIZE, y + math.sin(angle)*PLAYER_SIZE)
@@ -232,15 +234,22 @@ class Zombie:
         # Calculate angle to player for directional drawing
         angle = math.atan2(player_y + PLAYER_SIZE//2 - center_y, player_x + PLAYER_SIZE//2 - center_x)
         
-        # Shadow
-        shadow_size = int(self.size * 1.2)
-        shadow_surf = get_shadow_surface(shadow_size, shadow_size, alpha=100, is_ellipse=True)
-        surface.blit(shadow_surf, (center_x - shadow_size//2 + 4, center_y - shadow_size//2 + 4))
+        g_qual = game_settings.get("graphics_quality", "Orta")
         
-        # Glow (Radial Gradient) - only for special/boss zombies to eliminate CPU blend bottleneck
-        if self.type in ("boss", "boomer"):
+        # Shadow
+        if g_qual != "Düşük":
+            shadow_size = int(self.size * 1.2)
+            shadow_surf = get_shadow_surface(shadow_size, shadow_size, alpha=100, is_ellipse=True)
+            surface.blit(shadow_surf, (center_x - shadow_size//2 + 4, center_y - shadow_size//2 + 4))
+        
+        # Glow (Radial Gradient) based on graphics quality
+        if g_qual == "Yüksek":
             glow_surf = create_glow_surface(int(self.size * 1.8), self.color, max_alpha=90)
             surface.blit(glow_surf, (center_x - int(self.size*1.8), center_y - int(self.size*1.8)), special_flags=pygame.BLEND_RGBA_ADD)
+        elif g_qual == "Orta":
+            if self.type in ("boss", "boomer", "fast"):
+                glow_surf = create_glow_surface(int(self.size * 1.8), self.color, max_alpha=90)
+                surface.blit(glow_surf, (center_x - int(self.size*1.8), center_y - int(self.size*1.8)), special_flags=pygame.BLEND_RGBA_ADD)
         
         # Hit Flash
         is_flashing = current_time > 0 and (current_time - getattr(self, 'hit_flash_timer', 0) < 100)
@@ -402,20 +411,24 @@ class Item:
         float_offset = math.sin((pygame.time.get_ticks() - self.spawn_time) * 0.005) * 5
         draw_y = self.y + float_offset
         
+        g_qual = game_settings.get("graphics_quality", "Orta")
         # Shadow
-        shadow_surf = get_shadow_surface(self.size, 10, alpha=100, is_ellipse=True)
-        surface.blit(shadow_surf, (self.x, self.y + self.size - 5))
+        if g_qual != "Düşük":
+            shadow_surf = get_shadow_surface(self.size, 10, alpha=100, is_ellipse=True)
+            surface.blit(shadow_surf, (self.x, self.y + self.size - 5))
         
         if self.type == 'health':
-            glow = create_glow_surface(40, HEALTH_GREEN, 100)
-            surface.blit(glow, (self.x + self.size//2 - 40, draw_y + self.size//2 - 40), special_flags=pygame.BLEND_RGBA_ADD)
+            if g_qual != "Düşük":
+                glow = create_glow_surface(40, HEALTH_GREEN, 100)
+                surface.blit(glow, (self.x + self.size//2 - 40, draw_y + self.size//2 - 40), special_flags=pygame.BLEND_RGBA_ADD)
             pygame.draw.circle(surface, HEALTH_GREEN, (int(self.x + self.size//2), int(draw_y + self.size//2)), 15)
             # Draw plus sign
             pygame.draw.rect(surface, WHITE, (self.x + self.size//2 - 2, draw_y + self.size//2 - 8, 4, 16))
             pygame.draw.rect(surface, WHITE, (self.x + self.size//2 - 8, draw_y + self.size//2 - 2, 16, 4))
         elif self.type == 'stamina':
-            glow = create_glow_surface(40, STAMINA_BLUE, 100)
-            surface.blit(glow, (self.x + self.size//2 - 40, draw_y + self.size//2 - 40), special_flags=pygame.BLEND_RGBA_ADD)
+            if g_qual != "Düşük":
+                glow = create_glow_surface(40, STAMINA_BLUE, 100)
+                surface.blit(glow, (self.x + self.size//2 - 40, draw_y + self.size//2 - 40), special_flags=pygame.BLEND_RGBA_ADD)
             pygame.draw.circle(surface, (0, 50, 150), (int(self.x + self.size//2), int(draw_y + self.size//2)), 15)
             # Lightning bolt
             pygame.draw.polygon(surface, STAMINA_BLUE, [
@@ -424,15 +437,17 @@ class Item:
                 (self.x + 19, draw_y + 14), (self.x + 14, draw_y + 15)
             ])
         elif self.type == 'grenade':
-            glow = create_glow_surface(30, (0, 200, 0), 80)
-            surface.blit(glow, (self.x + self.size//2 - 30, draw_y + self.size//2 - 30), special_flags=pygame.BLEND_RGBA_ADD)
+            if g_qual != "Düşük":
+                glow = create_glow_surface(30, (0, 200, 0), 80)
+                surface.blit(glow, (self.x + self.size//2 - 30, draw_y + self.size//2 - 30), special_flags=pygame.BLEND_RGBA_ADD)
             pygame.draw.circle(surface, (0, 100, 0), (int(self.x + self.size//2), int(draw_y + self.size//2)), 12)
             pygame.draw.rect(surface, (50, 50, 50), (self.x + self.size//2 - 4, draw_y + self.size//2 - 15, 8, 8))
         else:
             # Weapon box
             weapon_lbl = assets.fonts['small'].render(self.type.upper(), True, WHITE)
-            glow = create_glow_surface(40, (200, 200, 200), 80)
-            surface.blit(glow, (self.x + self.size//2 - 40, draw_y + self.size//2 - 40), special_flags=pygame.BLEND_RGBA_ADD)
+            if g_qual != "Düşük":
+                glow = create_glow_surface(40, (200, 200, 200), 80)
+                surface.blit(glow, (self.x + self.size//2 - 40, draw_y + self.size//2 - 40), special_flags=pygame.BLEND_RGBA_ADD)
             pygame.draw.rect(surface, (50, 50, 50), (self.x, draw_y, self.size, self.size), border_radius=5)
             pygame.draw.rect(surface, WHITE, (self.x, draw_y, self.size, self.size), 2, border_radius=5)
             surface.blit(weapon_lbl, (self.x + (self.size - weapon_lbl.get_width())//2, draw_y + (self.size - weapon_lbl.get_height())//2))
@@ -653,14 +668,17 @@ class RemotePlayer:
         y = self.y + self.size // 2
         angle = self.angle
         
-        # Player Shadow
-        shadow_size = int(PLAYER_SIZE * 0.7 * 2)
-        shadow_surf = get_shadow_surface(shadow_size, shadow_size, alpha=100, is_ellipse=True)
-        surface.blit(shadow_surf, (x - shadow_size // 2, y - shadow_size // 2))
-        
-        # Player Glow
-        glow_surf = create_glow_surface(int(PLAYER_SIZE * 2), self.color, max_alpha=120)
-        surface.blit(glow_surf, (x - PLAYER_SIZE * 2, y - PLAYER_SIZE * 2), special_flags=pygame.BLEND_RGBA_ADD)
+        g_qual = game_settings.get("graphics_quality", "Orta")
+
+        # Player Shadow & Glow
+        if g_qual != "Düşük":
+            shadow_size = int(PLAYER_SIZE * 0.7 * 2)
+            shadow_surf = get_shadow_surface(shadow_size, shadow_size, alpha=100, is_ellipse=True)
+            surface.blit(shadow_surf, (x - shadow_size // 2, y - shadow_size // 2))
+            
+            # Player Glow
+            glow_surf = create_glow_surface(int(PLAYER_SIZE * 2), self.color, max_alpha=120)
+            surface.blit(glow_surf, (x - PLAYER_SIZE * 2, y - PLAYER_SIZE * 2), special_flags=pygame.BLEND_RGBA_ADD)
         
         # Draw Player Ship Model
         p1 = (x + math.cos(angle) * PLAYER_SIZE, y + math.sin(angle) * PLAYER_SIZE)

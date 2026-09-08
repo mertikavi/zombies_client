@@ -595,10 +595,12 @@ class GameManager:
         shake_surface = self.shake_surface
         shake_surface.blit(self.bg_surface, (0, 0))
         
+        g_qual = game_settings.get("graphics_quality", "Orta")
         # Draw obstacles
         for obs in self.obstacles:
-            shadow_surf = get_shadow_surface(obs[2], 10, alpha=150)
-            shake_surface.blit(shadow_surf, (obs[0], obs[1] + obs[3] - 5))
+            if g_qual != "Düşük":
+                shadow_surf = get_shadow_surface(obs[2], 10, alpha=150)
+                shake_surface.blit(shadow_surf, (obs[0], obs[1] + obs[3] - 5))
             pygame.draw.rect(shake_surface, (50, 50, 70), (obs[0], obs[1], obs[2], obs[3]))
             pygame.draw.rect(shake_surface, (70, 70, 90), (obs[0], obs[1], obs[2], obs[3]), 2)
             
