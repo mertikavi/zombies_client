@@ -269,11 +269,12 @@ class NetworkClient:
             "map_seed": map_seed
         })
 
-    def send_zombie_sync(self, zombies: list):
+    def send_zombie_sync(self, zombies: list, wave: int = 1):
         """Send authoritative zombie positions from host to clients."""
         self._send({
             "type": "zombie_sync",
-            "zombies": zombies
+            "zombies": zombies,
+            "wave": wave
         })
 
     def get_messages(self) -> list:

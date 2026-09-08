@@ -971,7 +971,8 @@ class Menu:
             current_time = pygame.time.get_ticks()
 
             # Process network messages
-            for msg in network.get_messages():
+            messages = network.get_messages()
+            for i, msg in enumerate(messages):
                 msg_type = msg.get("type")
                 if msg_type == "room_list":
                     rooms_list = msg.get("rooms", [])
@@ -994,6 +995,10 @@ class Menu:
                 elif msg_type == "game_started":
                     game_started = True
                     game_start_data = msg
+                    # Re-queue any remaining messages (e.g. initial entity_spawn, zombie_sync)
+                    # so that MultiplayerGameManager can process them!
+                    for rem_msg in messages[i + 1:]:
+                        network._incoming.put(rem_msg)
                     return ("start_game", game_start_data)
                 elif msg_type == "error":
                     error_msg = msg.get("message", "Hata!")

@@ -260,7 +260,10 @@ class MultiplayerGameManager:
         """Handle entity spawn from host."""
         entity_type = data.get("entity_type")
         if entity_type == "zombie":
-            z = Zombie(data["x"], data["y"], data.get("wave", 1), entity_id=data["entity_id"])
+            zid = data.get("entity_id")
+            if any(z.entity_id == zid for z in self.zombies):
+                return
+            z = Zombie(data["x"], data["y"], data.get("wave", 1), entity_id=zid)
             # Override stats from host
             z.type = data.get("zombie_type", z.type)
             z.health = data.get("zombie_health", z.health)
@@ -272,8 +275,10 @@ class MultiplayerGameManager:
             self.zombies.append(z)
         elif entity_type == "item":
             item_type = data.get("item_type", "health")
-            item = Item(data["x"], data["y"], item_type)
-            self.items.append(item)
+            ix, iy = data.get("x", 0), data.get("y", 0)
+            if not any(abs(it.x - ix) < 5 and abs(it.y - iy) < 5 for it in self.items):
+                item = Item(ix, iy, item_type)
+                self.items.append(item)
 
     def _handle_entity_kill(self, data):
         """Handle entity kill from another player."""
@@ -339,13 +344,20 @@ class MultiplayerGameManager:
             return  # Host is authoritative
 
         zombie_list = data.get("zombies", [])
+        wave_num = data.get("wave", self.wave)
         zombie_map = {z.entity_id: z for z in self.zombies}
+        host_ids = set()
 
         for item in zombie_list:
             zid = item.get("id")
             hx = item.get("x")
             hy = item.get("y")
-            if zid in zombie_map and hx is not None and hy is not None:
+            if zid is None or hx is None or hy is None:
+                continue
+
+            host_ids.add(zid)
+
+            if zid in zombie_map:
                 z = zombie_map[zid]
                 dist = math.hypot(hx - z.x, hy - z.y)
                 if dist > 60:
@@ -356,6 +368,26 @@ class MultiplayerGameManager:
                     # Smoothly catch up towards host position
                     z.x += (hx - z.x) * 0.5
                     z.y += (hy - z.y) * 0.5
+                if "health" in item:
+                    z.health = item["health"]
+            else:
+                # Zombie doesn't exist locally: auto-spawn immediately from host sync!
+                new_z = Zombie(hx, hy, wave_num, entity_id=zid)
+                new_z.type = item.get("type", new_z.type)
+                new_z.health = item.get("health", new_z.health)
+                new_z.speed = item.get("speed", new_z.speed)
+                new_z.size = item.get("size", new_z.size)
+                color_data = item.get("color")
+                if color_data:
+                    new_z.color = tuple(color_data)
+                self.zombies.append(new_z)
+                zombie_map[zid] = new_z
+
+        # Clean up dead zombies that host no longer has
+        if host_ids:
+            for z in list(self.zombies):
+                if z.entity_id not in host_ids:
+                    self.zombies.remove(z)
 
     def _handle_player_left(self, data):
         """Handle a player leaving the game."""
@@ -424,16 +456,25 @@ class MultiplayerGameManager:
             pet_y=pet_y
         )
 
-        # Host broadcasts authoritative zombie positions
+        # Host broadcasts authoritative zombie positions and state
         if self.is_host:
             if current_time - self.last_zombie_sync >= self.zombie_sync_interval:
                 self.last_zombie_sync = current_time
                 if self.zombies:
                     z_data = [
-                        {"id": z.entity_id, "x": round(z.x, 1), "y": round(z.y, 1)}
+                        {
+                            "id": z.entity_id,
+                            "x": round(z.x, 1),
+                            "y": round(z.y, 1),
+                            "type": getattr(z, "type", "normal"),
+                            "health": getattr(z, "health", 1),
+                            "speed": getattr(z, "speed", 1.0),
+                            "size": getattr(z, "size", ZOMBIE_SIZE),
+                            "color": list(z.color) if hasattr(z, "color") else [255, 0, 0]
+                        }
                         for z in self.zombies
                     ]
-                    self.network.send_zombie_sync(z_data)
+                    self.network.send_zombie_sync(z_data, wave=self.wave)
 
     # ================================================================
     # GAME LOGIC (mostly from GameManager, adapted for multiplayer)
