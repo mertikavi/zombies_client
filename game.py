@@ -18,6 +18,13 @@ class GameManager:
         self.menu = Menu(width, height)
         self.shake_surface = pygame.Surface((self.width, self.height))
         self.fov_surface = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+        self.bg_surface = pygame.Surface((self.width, self.height))
+        self.bg_surface.fill((18, 18, 28))
+        grid_color = (30, 30, 45)
+        for x in range(0, self.width, 40):
+            pygame.draw.line(self.bg_surface, grid_color, (x, 0), (x, self.height))
+        for y in range(0, self.height, 40):
+            pygame.draw.line(self.bg_surface, grid_color, (0, y), (self.width, y))
         
         self.reset_game()
 
@@ -586,8 +593,7 @@ class GameManager:
             self.screen_shake -= 1
             
         shake_surface = self.shake_surface
-        shake_surface.fill((18, 18, 28)) # #12121c dark theme
-        self.draw_grid(shake_surface)
+        shake_surface.blit(self.bg_surface, (0, 0))
         
         # Draw obstacles
         for obs in self.obstacles:
@@ -661,9 +667,6 @@ class GameManager:
             
         # Draw player
         self.player.draw(shake_surface, pygame.mouse.get_pos())
-        
-        # Vignette effect (Dark edges)
-        shake_surface.fill((0, 0, 20, 30), special_flags=pygame.BLEND_RGBA_SUB)
         
         # CS2D-style FOV cone
         if game_settings.get("fov", False):

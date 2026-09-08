@@ -2,6 +2,8 @@ import pygame
 import math
 import random
 
+_particle_cache = {}
+
 class Particle:
     def __init__(self, x, y, color, size, speed, angle, lifetime):
         self.x = x
@@ -30,11 +32,23 @@ class Particle:
         return self.lifetime > 0
 
     def draw(self, surface):
-        if self.lifetime > 0:
-            alpha = int(255 * (self.lifetime / self.max_lifetime))
-            s = pygame.Surface((int(self.size*2), int(self.size*2)), pygame.SRCALPHA)
-            pygame.draw.circle(s, (*self.color, alpha), (int(self.size), int(self.size)), int(self.size))
-            surface.blit(s, (int(self.x - self.size), int(self.y - self.size)))
+        if self.lifetime <= 0:
+            return
+        
+        sz = int(self.size)
+        if sz <= 3:
+            # Direct draw for small particles (blood, casings, sparks) - zero surface allocations!
+            pygame.draw.circle(surface, self.color, (int(self.x), int(self.y)), max(1, sz))
+        else:
+            # Cached alpha surface for larger particles (muzzle flashes, explosions)
+            alpha = max(0, min(255, int(255 * (self.lifetime / self.max_lifetime))))
+            alpha_bucket = (alpha // 30) * 30
+            cache_key = (sz, self.color, alpha_bucket)
+            if cache_key not in _particle_cache:
+                s = pygame.Surface((sz * 2, sz * 2), pygame.SRCALPHA)
+                pygame.draw.circle(s, (*self.color, alpha_bucket), (sz, sz), sz)
+                _particle_cache[cache_key] = s
+            surface.blit(_particle_cache[cache_key], (int(self.x - sz), int(self.y - sz)))
 
 
 class FloatingText:
@@ -46,6 +60,7 @@ class FloatingText:
         self.lifetime = lifetime
         self.max_lifetime = lifetime
         self.dy = -1.5 # Float upwards
+        self.surf = None
 
     def update(self, dt):
         self.y += self.dy
@@ -54,10 +69,12 @@ class FloatingText:
 
     def draw(self, surface, font):
         if self.lifetime > 0:
-            alpha = int(255 * (self.lifetime / self.max_lifetime))
-            txt_surf = font.render(self.text, True, self.color)
-            txt_surf.set_alpha(alpha)
-            surface.blit(txt_surf, (int(self.x), int(self.y)))
+            if self.surf is None and font is not None:
+                self.surf = font.render(self.text, True, self.color)
+            if self.surf:
+                alpha = max(0, min(255, int(255 * (self.lifetime / self.max_lifetime))))
+                self.surf.set_alpha(alpha)
+                surface.blit(self.surf, (int(self.x), int(self.y)))
 
 
 class ParticleSystem:
@@ -95,6 +112,11 @@ class ParticleSystem:
     def update(self, dt):
         self.particles = [p for p in self.particles if p.update(dt)]
         self.floating_texts = [ft for ft in self.floating_texts if ft.update(dt)]
+        # Cap particle counts for performance
+        if len(self.particles) > 100:
+            self.particles = self.particles[-100:]
+        if len(self.floating_texts) > 25:
+            self.floating_texts = self.floating_texts[-25:]
 
     def draw(self, surface, font=None):
         for p in self.particles:

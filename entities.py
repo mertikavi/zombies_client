@@ -4,6 +4,17 @@ import random
 from config import *
 from utils import check_collision, draw_triangle_pointing_to_mouse, create_glow_surface, get_shadow_surface
 
+_name_font = None
+
+def _get_name_font():
+    global _name_font
+    if _name_font is None:
+        try:
+            _name_font = pygame.font.SysFont("segoeui", 16, bold=True)
+        except Exception:
+            _name_font = pygame.font.Font(None, 20)
+    return _name_font
+
 class Player:
     def __init__(self, x, y, player_name=""):
         self.x = x
@@ -42,6 +53,11 @@ class Player:
         self.dash_cooldown_timer = 0
         self.dash_dir_x = 0
         self.dash_dir_y = 0
+
+        # Name render cache
+        self._name_cache_text = None
+        self._name_cache_surf = None
+        self._name_cache_shadow = None
         
     def switch_weapon(self, weapon_name):
         if weapon_name != "knife" and not self.inventory[weapon_name]["owned"]:
@@ -101,13 +117,15 @@ class Player:
         # Draw player name above
         if draw_name and self.player_name:
             try:
-                font = pygame.font.SysFont("segoeui", 16, bold=True)
-                name_surf = font.render(self.player_name, True, (255, 255, 255))
-                name_shadow = font.render(self.player_name, True, (0, 0, 0))
-                name_x = x - name_surf.get_width() // 2
+                if self._name_cache_text != self.player_name:
+                    font = _get_name_font()
+                    self._name_cache_surf = font.render(self.player_name, True, (255, 255, 255))
+                    self._name_cache_shadow = font.render(self.player_name, True, (0, 0, 0))
+                    self._name_cache_text = self.player_name
+                name_x = x - self._name_cache_surf.get_width() // 2
                 name_y = self.y - 25
-                surface.blit(name_shadow, (name_x + 1, name_y + 1))
-                surface.blit(name_surf, (name_x, name_y))
+                surface.blit(self._name_cache_shadow, (name_x + 1, name_y + 1))
+                surface.blit(self._name_cache_surf, (name_x, name_y))
             except Exception:
                 pass
         
@@ -219,9 +237,10 @@ class Zombie:
         shadow_surf = get_shadow_surface(shadow_size, shadow_size, alpha=100, is_ellipse=True)
         surface.blit(shadow_surf, (center_x - shadow_size//2 + 4, center_y - shadow_size//2 + 4))
         
-        # Glow (Radial Gradient)
-        glow_surf = create_glow_surface(int(self.size * 2), self.color, max_alpha=100)
-        surface.blit(glow_surf, (center_x - int(self.size*2), center_y - int(self.size*2)), special_flags=pygame.BLEND_RGBA_ADD)
+        # Glow (Radial Gradient) - only for special/boss zombies to eliminate CPU blend bottleneck
+        if self.type in ("boss", "boomer"):
+            glow_surf = create_glow_surface(int(self.size * 1.8), self.color, max_alpha=90)
+            surface.blit(glow_surf, (center_x - int(self.size*1.8), center_y - int(self.size*1.8)), special_flags=pygame.BLEND_RGBA_ADD)
         
         # Hit Flash
         is_flashing = current_time > 0 and (current_time - getattr(self, 'hit_flash_timer', 0) < 100)
@@ -587,6 +606,11 @@ class RemotePlayer:
         # Pet tracking
         self.pet_x = 0
         self.pet_y = 0
+
+        # Name render cache
+        self._name_cache_text = None
+        self._name_cache_surf = None
+        self._name_cache_shadow = None
     
     def update_from_network(self, data):
         """Update state from network message."""
@@ -658,13 +682,15 @@ class RemotePlayer:
         # Draw player name above
         if self.player_name:
             try:
-                font = pygame.font.SysFont("segoeui", 16, bold=True)
-                name_surf = font.render(self.player_name, True, (255, 255, 255))
-                name_shadow = font.render(self.player_name, True, (0, 0, 0))
-                name_x = x - name_surf.get_width() // 2
+                if self._name_cache_text != self.player_name:
+                    font = _get_name_font()
+                    self._name_cache_surf = font.render(self.player_name, True, (255, 255, 255))
+                    self._name_cache_shadow = font.render(self.player_name, True, (0, 0, 0))
+                    self._name_cache_text = self.player_name
+                name_x = x - self._name_cache_surf.get_width() // 2
                 name_y = self.y - 25
-                surface.blit(name_shadow, (name_x + 1, name_y + 1))
-                surface.blit(name_surf, (name_x, name_y))
+                surface.blit(self._name_cache_shadow, (name_x + 1, name_y + 1))
+                surface.blit(self._name_cache_surf, (name_x, name_y))
             except Exception:
                 pass
         

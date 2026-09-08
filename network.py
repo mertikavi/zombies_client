@@ -296,6 +296,13 @@ class NetworkClient:
             "wave": wave
         })
 
+    def send_chat(self, message: str):
+        """Send chat message to room."""
+        self._send({
+            "type": "chat",
+            "message": message
+        })
+
     def get_messages(self) -> list:
         """Get all pending incoming messages (non-blocking)."""
         messages = []

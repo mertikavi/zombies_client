@@ -47,6 +47,18 @@ class MultiplayerGameManager:
         # Pre-allocated surfaces for rendering performance
         self.shake_surface = pygame.Surface((self.width, self.height))
         self.fov_surface = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+        self.bg_surface = pygame.Surface((self.width, self.height))
+        self.bg_surface.fill((18, 18, 28))
+        grid_color = (30, 30, 45)
+        for x in range(0, self.width, 40):
+            pygame.draw.line(self.bg_surface, grid_color, (x, 0), (x, self.height))
+        for y in range(0, self.height, 40):
+            pygame.draw.line(self.bg_surface, grid_color, (0, y), (self.width, y))
+
+        # In-game Chat state
+        self.is_chatting = False
+        self.chat_input = ""
+        self.chat_messages = []
 
         self.reset_game()
 
@@ -269,12 +281,31 @@ class MultiplayerGameManager:
                 self._handle_zombie_sync(msg)
             elif msg_type == "item_sync":
                 self._handle_item_sync(msg)
+            elif msg_type == "chat":
+                self._handle_chat(msg)
             elif msg_type == "game_over":
                 self._handle_game_over(msg)
             elif msg_type == "player_left":
                 self._handle_player_left(msg)
             elif msg_type == "host_changed":
                 self._handle_host_changed(msg)
+
+    def _handle_chat(self, data):
+        """Handle incoming chat message from server."""
+        sender_name = data.get("sender_name", "Oyuncu")
+        message = data.get("message", "")
+        if message:
+            self.add_chat_message(sender_name, message)
+
+    def add_chat_message(self, sender, text):
+        """Add chat message to local history."""
+        self.chat_messages.append({
+            "sender": sender,
+            "text": text,
+            "time": pygame.time.get_ticks()
+        })
+        if len(self.chat_messages) > 40:
+            self.chat_messages = self.chat_messages[-40:]
 
     def _handle_remote_player_update(self, sender_id, data):
         """Update remote player state."""
@@ -613,6 +644,10 @@ class MultiplayerGameManager:
     # ================================================================
 
     def handle_input(self, dt, dt_factor=1.0):
+        if self.is_chatting:
+            self.player.is_sprinting = False
+            return
+
         keys = pygame.key.get_pressed()
         move_x = move_y = 0
         diff = DIFFICULTY_SETTINGS[game_settings["difficulty"]]
@@ -711,6 +746,11 @@ class MultiplayerGameManager:
         if keys[pygame.K_3]: self.player.switch_weapon("knife")
 
     def handle_shooting(self, mouse_pos):
+        if self.is_chatting:
+            if assets.channels['flamethrower'].get_busy():
+                assets.channels['flamethrower'].stop()
+            return
+
         mouse_pressed = pygame.mouse.get_pressed()
         current_time = pygame.time.get_ticks()
         wp = weapons_data[self.player.current_weapon]
@@ -1153,8 +1193,7 @@ class MultiplayerGameManager:
             self.screen_shake -= 1
 
         shake_surface = self.shake_surface
-        shake_surface.fill((18, 18, 28))
-        self.draw_grid(shake_surface)
+        shake_surface.blit(self.bg_surface, (0, 0))
 
         # Draw obstacles
         for obs in self.obstacles:
@@ -1236,9 +1275,6 @@ class MultiplayerGameManager:
         if not getattr(self, "is_spectating", False):
             self.player.draw(shake_surface, pygame.mouse.get_pos(), draw_name=True)
 
-        # Vignette
-        shake_surface.fill((0, 0, 20, 30), special_flags=pygame.BLEND_RGBA_SUB)
-
         # FOV cone (only active when player is alive)
         if game_settings.get("fov", False) and not getattr(self, "is_spectating", False):
             px = self.player.x + PLAYER_SIZE // 2
@@ -1291,6 +1327,88 @@ class MultiplayerGameManager:
         # Crosshair
         draw_crosshair(self.surface, *pygame.mouse.get_pos(), 15, game_settings["bullet_color"])
 
+        # In-game Chat HUD
+        self.draw_in_game_chat(self.surface)
+
+    def draw_in_game_chat(self, surface):
+        """Draw recent chat messages and input prompt/box on the HUD."""
+        current_time = pygame.time.get_ticks()
+        chat_font = assets.fonts['small']
+
+        visible_msgs = []
+        for msg in self.chat_messages[-6:]:
+            age = current_time - msg["time"]
+            if self.is_chatting or age < 7000:
+                visible_msgs.append((msg, age))
+
+        base_x = 20
+        msg_bottom_y = self.height - 75 if self.is_chatting else self.height - 35
+        msg_h = 24
+        spacing = 4
+
+        for idx, (m, age) in enumerate(reversed(visible_msgs)):
+            y = msg_bottom_y - (idx + 1) * (msg_h + spacing)
+            if y < 140:
+                break
+
+            sender = m.get("sender", "?")
+            text = m.get("text", "")
+            is_me = (sender == self.player_name or sender == "Ben")
+            sender_col = (255, 215, 0) if is_me else (80, 210, 255)
+
+            if self.is_chatting:
+                alpha = 255
+            else:
+                if age < 5000:
+                    alpha = 255
+                else:
+                    alpha = max(0, int(255 * (1.0 - (age - 5000) / 2000.0)))
+
+            if alpha <= 5:
+                continue
+
+            full_text = f"[{sender}]: {text}"
+            rendered_msg = chat_font.render(full_text, True, (240, 240, 240))
+            box_w = rendered_msg.get_width() + 16
+            box_h = msg_h
+
+            bg_surf = pygame.Surface((box_w, box_h), pygame.SRCALPHA)
+            bg_alpha = int(170 * (alpha / 255.0))
+            pygame.draw.rect(bg_surf, (15, 20, 30, bg_alpha), (0, 0, box_w, box_h), border_radius=5)
+            pygame.draw.rect(bg_surf, (80, 100, 130, int(100 * (alpha / 255.0))), (0, 0, box_w, box_h), 1, border_radius=5)
+            surface.blit(bg_surf, (base_x, y))
+
+            s_tag = f"[{sender}]: "
+            s_surf = chat_font.render(s_tag, True, sender_col)
+            t_surf = chat_font.render(text, True, (240, 240, 240))
+            if alpha < 255:
+                s_surf.set_alpha(alpha)
+                t_surf.set_alpha(alpha)
+            surface.blit(s_surf, (base_x + 8, y + 3))
+            surface.blit(t_surf, (base_x + 8 + s_surf.get_width(), y + 3))
+
+        if self.is_chatting:
+            input_y = self.height - 65
+            input_w = 460
+            input_h = 36
+            input_surf = pygame.Surface((input_w, input_h), pygame.SRCALPHA)
+            pygame.draw.rect(input_surf, (10, 15, 25, 230), (0, 0, input_w, input_h), border_radius=6)
+            pygame.draw.rect(input_surf, (60, 220, 140, 240), (0, 0, input_w, input_h), 2, border_radius=6)
+            surface.blit(input_surf, (base_x, input_y))
+
+            cursor = "|" if (pygame.time.get_ticks() // 500) % 2 == 0 else ""
+            prefix = chat_font.render("[Sohbet]: ", True, (60, 220, 140))
+            surface.blit(prefix, (base_x + 10, input_y + 8))
+
+            input_txt = chat_font.render(f"{self.chat_input}{cursor}", True, WHITE)
+            surface.blit(input_txt, (base_x + 10 + prefix.get_width(), input_y + 8))
+
+            hint = assets.fonts['small'].render("ENTER: Gönder  |  ESC: İptal", True, (160, 170, 190))
+            surface.blit(hint, (base_x + input_w + 12, input_y + 9))
+        else:
+            prompt = assets.fonts['small'].render("[Y] Sohbet Et", True, (120, 130, 150))
+            surface.blit(prompt, (base_x, self.height - 25))
+
     # ================================================================
     # MAIN GAME LOOP
     # ================================================================
@@ -1321,22 +1439,43 @@ class MultiplayerGameManager:
                     pygame.quit()
                     sys.exit()
                 if event.type == pygame.KEYDOWN:
-                    if event.key == pygame.K_ESCAPE:
-                        self.network.leave_room()
-                        pygame.mouse.set_visible(True)
-                        return "main_menu"
-                    if event.key == pygame.K_r and self.player.current_weapon == "pistol":
-                        wp = weapons_data[self.player.current_weapon]
-                        if self.player.bullets_in_magazine < wp["max_ammo"]:
-                            assets.channels['reload'].play(assets.sounds['reload'])
-                            self.player.bullets_in_magazine = wp["max_ammo"]
-                    if event.key == pygame.K_t:
-                        if self.player.sentries > 0:
-                            self.player.sentries -= 1
-                            center_x = self.player.x + PLAYER_SIZE // 2
-                            center_y = self.player.y + PLAYER_SIZE // 2
-                            self.sentries_deployed.append(SentryGun(center_x, center_y))
-                            self.network.send_sentry_place(center_x, center_y)
+                    if self.is_chatting:
+                        if event.key == pygame.K_ESCAPE:
+                            self.is_chatting = False
+                            self.chat_input = ""
+                        elif event.key == pygame.K_RETURN:
+                            msg_to_send = self.chat_input.strip()
+                            if msg_to_send:
+                                self.network.send_chat(msg_to_send)
+                                self.add_chat_message(self.player_name, msg_to_send)
+                            self.is_chatting = False
+                            self.chat_input = ""
+                        elif event.key == pygame.K_BACKSPACE:
+                            self.chat_input = self.chat_input[:-1]
+                        else:
+                            if event.unicode and event.unicode.isprintable() and len(self.chat_input) < 60:
+                                self.chat_input += event.unicode
+                    else:
+                        if event.key == pygame.K_y:
+                            self.is_chatting = True
+                            self.chat_input = ""
+                            self.player.is_sprinting = False
+                        elif event.key == pygame.K_ESCAPE:
+                            self.network.leave_room()
+                            pygame.mouse.set_visible(True)
+                            return "main_menu"
+                        elif event.key == pygame.K_r and self.player.current_weapon == "pistol":
+                            wp = weapons_data[self.player.current_weapon]
+                            if self.player.bullets_in_magazine < wp["max_ammo"]:
+                                assets.channels['reload'].play(assets.sounds['reload'])
+                                self.player.bullets_in_magazine = wp["max_ammo"]
+                        elif event.key == pygame.K_t:
+                            if self.player.sentries > 0:
+                                self.player.sentries -= 1
+                                center_x = self.player.x + PLAYER_SIZE // 2
+                                center_y = self.player.y + PLAYER_SIZE // 2
+                                self.sentries_deployed.append(SentryGun(center_x, center_y))
+                                self.network.send_sentry_place(center_x, center_y)
 
             # Check team wipe if spectating
             if getattr(self, "is_spectating", False):
