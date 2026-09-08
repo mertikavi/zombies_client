@@ -41,14 +41,16 @@ class HUD:
             pygame.draw.rect(surface, (255, 50, 50), (120, 30, h_fill_w, 20), border_radius=5)
             
         # Stamina Bar
-        s_txt = assets.fonts['normal'].render("ENERJİ", True, WHITE)
+        is_exhausted = getattr(player, "stamina_exhausted", False)
+        s_txt = assets.fonts['normal'].render("ENERJİ (TÜKENDİ)" if is_exhausted else "ENERJİ", True, (255, 120, 50) if is_exhausted else WHITE)
         surface.blit(s_txt, (20, 65))
         
         s_fill_w = max(0, int((self.display_stamina / MAX_PLAYER_STAMINA) * bar_w))
         pygame.draw.rect(surface, (0,0,0,150), (120, 70, bar_w, 20), border_radius=5)
         pygame.draw.rect(surface, (0, 0, 50), (120, 70, bar_w, 20), border_radius=5) # bg
         if s_fill_w > 0:
-            pygame.draw.rect(surface, (50, 150, 255), (120, 70, s_fill_w, 20), border_radius=5)
+            bar_color = (255, 120, 50) if is_exhausted else (50, 150, 255)
+            pygame.draw.rect(surface, bar_color, (120, 70, s_fill_w, 20), border_radius=5)
 
         # Glass Panel for Weapon Info
         self.draw_glass_panel(surface, (self.width - 270, 10, 260, 165))
@@ -350,7 +352,7 @@ class Menu:
         
         wave_txt = assets.fonts['normal'].render(f"Ulaştığın Dalga: {wave}", True, WHITE)
         kills_txt = assets.fonts['normal'].render(f"Öldürdüğün Zombi: {total_kills}", True, WHITE)
-        restart_txt = assets.fonts['normal'].render("Ana Menü için bir tuşa bas...", True, (100, 255, 100))
+        restart_txt = assets.fonts['normal'].render("Ana Menü için ENTER tuşuna bas...", True, (100, 255, 100))
         
         surface.blit(title_shadow, (self.width//2 - title.get_width()//2 + 4, self.height//2 - 160 + 4))
         surface.blit(title, (self.width//2 - title.get_width()//2, self.height//2 - 160))
@@ -360,13 +362,16 @@ class Menu:
         surface.blit(restart_txt, (self.width//2 - restart_txt.get_width()//2, self.height//2 + 80))
         pygame.display.flip()
 
+        clock = pygame.time.Clock()
         waiting = True
         while waiting:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     return "quit"
                 if event.type == pygame.KEYDOWN:
-                    waiting = False
+                    if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
+                        waiting = False
+            clock.tick(60)
         return "main_menu"
 
     def show_wave_transition(self, surface, wave):
@@ -964,11 +969,18 @@ class Menu:
                 error_timer = pygame.time.get_ticks()
 
         # Request room list
+        last_room_refresh_time = pygame.time.get_ticks()
         if network.connected:
             network.list_rooms()
 
         while True:
             current_time = pygame.time.get_ticks()
+
+            # Auto-refresh room browser list every 2 seconds when browsing
+            if state == "browser" and network.connected:
+                if current_time - last_room_refresh_time > 2000:
+                    network.list_rooms()
+                    last_room_refresh_time = current_time
 
             # Process network messages
             messages = network.get_messages()
@@ -1107,6 +1119,7 @@ class Menu:
                             elif btn_back.collidepoint(m_x, m_y):
                                 state = "browser"
                                 selected = 0
+                                network.list_rooms()
 
                     elif state == "join":
                         panel_w = 450
@@ -1139,6 +1152,7 @@ class Menu:
                             elif btn_back.collidepoint(m_x, m_y):
                                 state = "browser"
                                 selected = 0
+                                network.list_rooms()
 
                     elif state == "lobby":
                         panel_w = 450
@@ -1160,12 +1174,14 @@ class Menu:
                                 network.leave_room()
                                 state = "browser"
                                 selected = 0
+                                network.list_rooms()
                         else:
                             btn_leave = pygame.Rect(self.width//2 - 100, panel_y + panel_h + 15, 200, 45)
                             if btn_leave.collidepoint(m_x, m_y):
                                 network.leave_room()
                                 state = "browser"
                                 selected = 0
+                                network.list_rooms()
 
                 elif event.type == pygame.MOUSEMOTION:
                     m_x, m_y = event.pos
@@ -1191,6 +1207,7 @@ class Menu:
                             state = "browser"
                             selected = 0
                             selected_room = None
+                            network.list_rooms()
                         elif state == "lobby":
                             network.leave_room()
                             state = "browser"

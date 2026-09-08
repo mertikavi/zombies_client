@@ -327,7 +327,9 @@ class MultiplayerGameManager:
         if getattr(self, "is_spectating", False):
             self.is_spectating = False
             self.game_over = False
-            self.player.health = self.player.max_health
+            self.player.health = MAX_PLAYER_HEALTH
+            self.player.stamina = MAX_PLAYER_STAMINA
+            self.player.stamina_exhausted = False
             self.player.x = self.width // 2
             self.player.y = self.height // 2
             self.particles.add_floating_text(self.player.x, self.player.y, "CANLANDIN!", (100, 255, 100))
@@ -483,17 +485,40 @@ class MultiplayerGameManager:
     def handle_input(self, dt, dt_factor=1.0):
         keys = pygame.key.get_pressed()
         move_x = move_y = 0
+        diff = DIFFICULTY_SETTINGS[game_settings["difficulty"]]
+        is_moving = keys[pygame.K_w] or keys[pygame.K_s] or keys[pygame.K_a] or keys[pygame.K_d]
 
-        if keys[pygame.K_LSHIFT] and self.player.stamina > 0:
+        # Exhaustion recovery: must reach at least 25 stamina to sprint again once exhausted
+        if getattr(self.player, "stamina_exhausted", False):
+            if self.player.stamina >= 25:
+                self.player.stamina_exhausted = False
+
+        shift_pressed = keys[pygame.K_LSHIFT] or keys[pygame.K_RSHIFT]
+
+        # Sprinting:
+        # Prevent micro-sprinting when stamina runs out:
+        # - Must not be exhausted
+        # - Must be pressing shift and moving
+        # - If already sprinting, stamina must be > 0. If starting a new sprint, stamina must be >= 10.
+        can_sprint = (
+            shift_pressed and
+            is_moving and
+            not getattr(self.player, "stamina_exhausted", False) and
+            (self.player.stamina > 0 if self.player.is_sprinting else self.player.stamina >= 10)
+        )
+
+        if can_sprint:
             speed = PLAYER_SPRINT_SPEED * dt_factor
             self.player.is_sprinting = True
-            diff = DIFFICULTY_SETTINGS[game_settings["difficulty"]]
             self.player.stamina -= diff["stamina_drain_rate"] * dt_factor
+            if self.player.stamina <= 0:
+                self.player.stamina = 0
+                self.player.stamina_exhausted = True
+                self.player.is_sprinting = False
         else:
             speed = PLAYER_BASE_SPEED * dt_factor
             self.player.is_sprinting = False
             if self.player.stamina < MAX_PLAYER_STAMINA:
-                diff = DIFFICULTY_SETTINGS[game_settings["difficulty"]]
                 self.player.stamina = min(MAX_PLAYER_STAMINA, self.player.stamina + diff["stamina_regen_rate"] * dt_factor)
 
         if keys[pygame.K_w]: move_y = -speed
@@ -522,6 +547,9 @@ class MultiplayerGameManager:
             self.player.is_dashing = True
             self.player.dash_timer = current_time
             self.player.stamina -= 20
+            if self.player.stamina <= 0:
+                self.player.stamina = 0
+                self.player.stamina_exhausted = True
             if move_x == 0 and move_y == 0:
                 mouse_pos = pygame.mouse.get_pos()
                 angle = math.atan2(mouse_pos[1] - self.player.y, mouse_pos[0] - self.player.x)
@@ -729,7 +757,9 @@ class MultiplayerGameManager:
             if getattr(self, "is_spectating", False):
                 self.is_spectating = False
                 self.game_over = False
-                self.player.health = self.player.max_health
+                self.player.health = MAX_PLAYER_HEALTH
+                self.player.stamina = MAX_PLAYER_STAMINA
+                self.player.stamina_exhausted = False
                 self.player.x = self.width // 2
                 self.player.y = self.height // 2
                 self.particles.add_floating_text(self.player.x, self.player.y, "CANLANDIN!", (100, 255, 100))
@@ -1203,7 +1233,9 @@ class MultiplayerGameManager:
                     if getattr(self, "is_spectating", False):
                         self.is_spectating = False
                         self.game_over = False
-                        self.player.health = self.player.max_health
+                        self.player.health = MAX_PLAYER_HEALTH
+                        self.player.stamina = MAX_PLAYER_STAMINA
+                        self.player.stamina_exhausted = False
                         self.player.x = self.width // 2
                         self.player.y = self.height // 2
                         self.particles.add_floating_text(self.player.x, self.player.y, "CANLANDIN!", (100, 255, 100))

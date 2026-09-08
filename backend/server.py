@@ -101,6 +101,18 @@ def get_room_list():
     ]
 
 
+async def broadcast_room_list():
+    """Broadcast updated room list to all connected players who are browsing (not in a room)."""
+    room_list = get_room_list()
+    msg = {
+        "type": "room_list",
+        "rooms": room_list
+    }
+    for p in list(connections.values()):
+        if p.room_id is None:
+            await send_json(p.websocket, msg)
+
+
 async def handle_create_room(player: PlayerConnection, data: dict):
     """Handle room creation."""
     room_name = data.get("room_name", "Oda")
@@ -133,6 +145,7 @@ async def handle_create_room(player: PlayerConnection, data: dict):
         "player_id": player.player_id
     })
     await broadcast_room_update(room_id)
+    await broadcast_room_list()
     print(f"[SERVER] Room created: {room_name} ({room_id}) by {player_name}")
 
 
@@ -196,6 +209,7 @@ async def handle_join_room(player: PlayerConnection, data: dict):
     }, exclude_player_id=player.player_id)
 
     await broadcast_room_update(room_id)
+    await broadcast_room_list()
     print(f"[SERVER] {player_name} joined room {room.room_name} ({room_id})")
 
 
@@ -239,6 +253,7 @@ async def handle_leave_room(player: PlayerConnection):
         await broadcast_room_update(room_id)
 
     print(f"[SERVER] {player.player_name} left room {room_id}")
+    await broadcast_room_list()
 
 
 async def handle_list_rooms(player: PlayerConnection):
@@ -282,6 +297,7 @@ async def handle_start_game(player: PlayerConnection, data: dict):
         "map_seed": room.map_seed,
         "players": player_info
     })
+    await broadcast_room_list()
 
     print(f"[SERVER] Game started in room {room.room_name} ({room_id}) with seed {room.map_seed}")
 
@@ -360,6 +376,7 @@ async def websocket_endpoint(websocket: WebSocket):
         if player.room_id:
             await handle_leave_room(player)
         connections.pop(player_id, None)
+        await broadcast_room_list()
 
 
 @app.get("/")

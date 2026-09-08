@@ -11,7 +11,10 @@ class Player:
         self.player_name = player_name
         self.size = PLAYER_SIZE
         self.health = MAX_PLAYER_HEALTH
+        self.max_health = MAX_PLAYER_HEALTH
         self.stamina = MAX_PLAYER_STAMINA
+        self.max_stamina = MAX_PLAYER_STAMINA
+        self.stamina_exhausted = False
         self.is_sprinting = False
         
         # Weapons
@@ -567,7 +570,10 @@ class RemotePlayer:
         self.target_x = 0
         self.target_y = 0
         self.health = MAX_PLAYER_HEALTH
+        self.max_health = MAX_PLAYER_HEALTH
         self.stamina = MAX_PLAYER_STAMINA
+        self.max_stamina = MAX_PLAYER_STAMINA
+        self.stamina_exhausted = False
         self.current_weapon = "pistol"
         self.angle = 0
         self.is_sprinting = False
