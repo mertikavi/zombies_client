@@ -22,6 +22,7 @@ class NetworkClient:
         self.is_host = False
         self.connected = False
         self.player_name = ""
+        self.ping = 0
 
         # Thread-safe message queue for incoming messages
         self._incoming = queue.Queue()
@@ -70,12 +71,13 @@ class NetworkClient:
                 self.connected = True
                 print(f"[NETWORK] Connected to {self.server_url}")
 
-                # Run send and receive concurrently
+                # Run send, receive, and ping loops concurrently
                 send_task = asyncio.ensure_future(self._send_loop(ws))
                 recv_task = asyncio.ensure_future(self._recv_loop(ws))
+                ping_task = asyncio.ensure_future(self._ping_loop(ws))
 
                 done, pending = await asyncio.wait(
-                    [send_task, recv_task],
+                    [send_task, recv_task, ping_task],
                     return_when=asyncio.FIRST_COMPLETED
                 )
                 for task in pending:
@@ -103,12 +105,32 @@ class NetworkClient:
                 print(f"[NETWORK] Send error: {e}")
                 break
 
+    async def _ping_loop(self, ws):
+        """Periodically ping server to measure round-trip latency."""
+        while self._running:
+            try:
+                if self.connected:
+                    self._send({
+                        "type": "ping",
+                        "client_time": time.time()
+                    })
+                await asyncio.sleep(1.0)
+            except Exception:
+                break
+
     async def _recv_loop(self, ws):
         """Receive incoming messages and put them in the queue."""
         try:
             async for raw in ws:
                 try:
                     data = json.loads(raw)
+                    # Handle ping pong
+                    if data.get("type") == "pong":
+                        c_time = data.get("client_time", 0)
+                        if c_time > 0:
+                            self.ping = max(1, int((time.time() - c_time) * 1000))
+                        continue
+
                     # Handle connection response
                     if data.get("type") == "connected":
                         self.player_id = data.get("player_id")
@@ -302,6 +324,10 @@ class NetworkClient:
             "type": "chat",
             "message": message
         })
+
+    def get_ping(self) -> int:
+        """Return the current latency in milliseconds."""
+        return self.ping
 
     def get_messages(self) -> list:
         """Get all pending incoming messages (non-blocking)."""

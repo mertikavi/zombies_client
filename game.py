@@ -700,12 +700,30 @@ class GameManager:
         
         # Draw HUD (UI is not shaken)
         self.hud.draw(self.surface, self.player, self.wave, len(self.zombies), self.zombies_required)
+
+        # FPS Indicator
+        if game_settings.get("show_fps", True):
+            self.draw_fps(self.surface)
         
         # Crosshair
         draw_crosshair(self.surface, *pygame.mouse.get_pos(), 15, game_settings["bullet_color"])
 
+    def draw_fps(self, surface):
+        """Draw FPS badge on HUD."""
+        fps_val = getattr(self, "current_fps", 60)
+        fps_surf = assets.fonts['small'].render(f"FPS: {fps_val}", True, (200, 240, 200))
+        bw = fps_surf.get_width() + 16
+        bh = 24
+        s = pygame.Surface((bw, bh), pygame.SRCALPHA)
+        pygame.draw.rect(s, (15, 20, 30, 190), (0, 0, bw, bh), border_radius=4)
+        pygame.draw.rect(s, (70, 90, 120, 150), (0, 0, bw, bh), 1, border_radius=4)
+        surface.blit(s, (15, 118))
+        surface.blit(fps_surf, (23, 121))
+
     def run(self):
         clock = pygame.time.Clock()
+        self.clock = clock
+        self.current_fps = 60
         pygame.mouse.set_visible(False)
         
         update_discord_presence(game_state="Playing")
@@ -713,6 +731,7 @@ class GameManager:
         while True:
             dt = clock.tick(60)
             dt_factor = min(max(dt / (1000.0 / 60.0), 0.5), 3.0)
+            self.current_fps = int(clock.get_fps())
             current_time = pygame.time.get_ticks()
             self.particles.update(dt)
             

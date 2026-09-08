@@ -44,6 +44,7 @@ game_settings = {
     "sound": True,
     "fov": True,
     "display_mode": "Tam Ekran",
+    "show_fps": True,
     "width": 1920, # Default, will be updated by pygame.display.Info
     "height": 1080
 }

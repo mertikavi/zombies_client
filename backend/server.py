@@ -354,6 +354,11 @@ async def websocket_endpoint(websocket: WebSocket):
                 await handle_list_rooms(player)
             elif msg_type == "start_game":
                 await handle_start_game(player, data)
+            elif msg_type == "ping":
+                await send_json(websocket, {
+                    "type": "pong",
+                    "client_time": data.get("client_time", 0)
+                })
             elif msg_type in (
                 "player_update", "bullet_fire", "entity_spawn",
                 "entity_kill", "player_action", "grenade_throw",

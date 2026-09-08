@@ -182,6 +182,93 @@ class Menu:
                     border_radius=5)
             surface.blit(txt, (self.width//2 - txt.get_width()//2 + offset, self.height//2 + y_start + 30 + i * 70))
 
+    def _get_settings_layout(self):
+        panel_w = 680
+        panel_h = 360
+        panel_x = self.width // 2 - panel_w // 2
+        panel_y = self.height // 2 - 170
+
+        col1_x = panel_x + 25
+        col2_x = panel_x + 355
+        btn_w = 300
+        btn_h = 44
+
+        rects = [
+            # Col 1: Oyun
+            pygame.Rect(col1_x, panel_y + 55, btn_w, btn_h),   # 0: Zorluk
+            pygame.Rect(col1_x, panel_y + 110, btn_w, btn_h),  # 1: Karakter Rengi
+            pygame.Rect(col1_x, panel_y + 165, btn_w, btn_h),  # 2: Mermi Rengi
+            pygame.Rect(col1_x, panel_y + 220, btn_w, btn_h),  # 3: FOV
+            # Col 2: Sistem & Ekran
+            pygame.Rect(col2_x, panel_y + 55, btn_w, btn_h),   # 4: Müzik
+            pygame.Rect(col2_x, panel_y + 110, btn_w, btn_h),  # 5: Ses Efektleri
+            pygame.Rect(col2_x, panel_y + 165, btn_w, btn_h),  # 6: FPS Göstergesi
+            pygame.Rect(col2_x, panel_y + 220, btn_w, btn_h),  # 7: Ekran Modu
+            # Bottom: Geri
+            pygame.Rect(panel_x + panel_w // 2 - 120, panel_y + 290, 240, 46) # 8: Geri
+        ]
+        return panel_x, panel_y, panel_w, panel_h, rects
+
+    def _draw_settings_menu(self, surface, selected):
+        panel_x, panel_y, panel_w, panel_h, rects = self._get_settings_layout()
+        HUD(self.width, self.height).draw_glass_panel(surface, (panel_x, panel_y, panel_w, panel_h))
+
+        char_c_name = next(k for k, v in CHARACTER_COLORS.items() if v == game_settings['character_color'])
+        bull_c_name = next(k for k, v in BULLET_COLORS.items() if v == game_settings['bullet_color'])
+
+        # Headers
+        h1 = assets.fonts['small'].render("OYUN AYARLARI", True, (160, 200, 255))
+        surface.blit(h1, (panel_x + 25, panel_y + 22))
+        pygame.draw.line(surface, (70, 90, 120), (panel_x + 25, panel_y + 44), (panel_x + 325, panel_y + 44))
+
+        h2 = assets.fonts['small'].render("SES & GÖRÜNTÜ", True, (160, 200, 255))
+        surface.blit(h2, (panel_x + 355, panel_y + 22))
+        pygame.draw.line(surface, (70, 90, 120), (panel_x + 355, panel_y + 44), (panel_x + 655, panel_y + 44))
+
+        diff_col = (100, 255, 100) if game_settings["difficulty"] == "Kolay" else (255, 215, 0) if game_settings["difficulty"] == "Normal" else (255, 80, 80)
+        items = [
+            ("Zorluk", game_settings["difficulty"], diff_col, None),
+            ("Karakter Rengi", char_c_name, WHITE, game_settings["character_color"]),
+            ("Mermi Rengi", bull_c_name, WHITE, game_settings["bullet_color"]),
+            ("Görüş Alanı (FOV)", "Açık" if game_settings["fov"] else "Kapalı", (80, 240, 120) if game_settings["fov"] else (160, 80, 80), None),
+            ("Müzik", "Açık" if game_settings["music"] else "Kapalı", (80, 240, 120) if game_settings["music"] else (160, 80, 80), None),
+            ("Ses Efektleri", "Açık" if game_settings["sound"] else "Kapalı", (80, 240, 120) if game_settings["sound"] else (160, 80, 80), None),
+            ("FPS Göstergesi", "Açık" if game_settings.get("show_fps", True) else "Kapalı", (80, 240, 120) if game_settings.get("show_fps", True) else (160, 80, 80), None),
+            ("Ekran Modu", game_settings.get("display_mode", "Tam Ekran"), (100, 210, 255), None),
+        ]
+
+        for i in range(8):
+            r = rects[i]
+            is_sel = (selected == i)
+            lbl, val_str, val_col, dot_col = items[i]
+
+            bg_col = (35, 65, 105) if is_sel else (18, 24, 38)
+            border_col = (80, 210, 255) if is_sel else (50, 65, 90)
+            pygame.draw.rect(surface, bg_col, r, border_radius=6)
+            pygame.draw.rect(surface, border_col, r, 2 if is_sel else 1, border_radius=6)
+
+            lbl_surf = assets.fonts['small'].render(lbl, True, (210, 220, 235))
+            surface.blit(lbl_surf, (r.x + 12, r.centery - lbl_surf.get_height() // 2))
+
+            val_surf = assets.fonts['small'].render(val_str, True, val_col)
+            val_x = r.right - val_surf.get_width() - 14
+            if dot_col:
+                val_x -= 18
+                pygame.draw.circle(surface, dot_col, (r.right - 18, r.centery), 6)
+                pygame.draw.circle(surface, WHITE, (r.right - 18, r.centery), 7, 1)
+
+            surface.blit(val_surf, (val_x, r.centery - val_surf.get_height() // 2))
+
+        # Back button (index 8)
+        r_back = rects[8]
+        is_sel_back = (selected == 8)
+        bg_b = (70, 35, 40) if is_sel_back else (35, 20, 25)
+        border_b = (240, 80, 80) if is_sel_back else (120, 50, 60)
+        pygame.draw.rect(surface, bg_b, r_back, border_radius=6)
+        pygame.draw.rect(surface, border_b, r_back, 2 if is_sel_back else 1, border_radius=6)
+        back_txt = assets.fonts['normal'].render("Geri (ESC)", True, WHITE)
+        surface.blit(back_txt, (r_back.centerx - back_txt.get_width() // 2, r_back.centery - back_txt.get_height() // 2))
+
     def show_main_menu(self, surface, is_paused=False):
         menu_state = "main"
         selected = 0
@@ -198,26 +285,14 @@ class Menu:
         while True:
             self._draw_background(surface)
 
-            title_str = "Oyun Duraklatıldı" if is_paused else "ZOMBİ KAÇIŞI"
-            self._draw_title(surface, title_str)
+            title_str = "AYARLAR" if menu_state == "settings" else ("Oyun Duraklatıldı" if is_paused else "ZOMBİ KAÇIŞI")
+            y_off = -240 if menu_state == "settings" else -200
+            self._draw_title(surface, title_str, y_offset=y_off)
 
             if menu_state == "main":
                 self._draw_menu_options(surface, options, selected)
             elif menu_state == "settings":
-                char_c_name = next(k for k, v in CHARACTER_COLORS.items() if v == game_settings['character_color'])
-                bull_c_name = next(k for k, v in BULLET_COLORS.items() if v == game_settings['bullet_color'])
-                
-                settings_opts = [
-                    f"Zorluk: {game_settings['difficulty']}",
-                    f"Karakter Rengi: {char_c_name}",
-                    f"Mermi Rengi: {bull_c_name}",
-                    f"Müzik: {'Açık' if game_settings['music'] else 'Kapalı'}",
-                    f"Ses Efektleri: {'Açık' if game_settings['sound'] else 'Kapalı'}",
-                    f"Görüş Alanı (FOV): {'Açık' if game_settings['fov'] else 'Kapalı'}",
-                    f"Ekran Modu: {game_settings.get('display_mode', 'Tam Ekran')}",
-                    "Geri"
-                ]
-                self._draw_menu_options(surface, settings_opts, selected, panel_w=400)
+                self._draw_settings_menu(surface, selected)
 
             pygame.display.flip()
 
@@ -228,36 +303,72 @@ class Menu:
                 trigger_action = False
                 if event.type == pygame.MOUSEMOTION:
                     m_x, m_y = event.pos
-                    curr_opts = options if menu_state == "main" else settings_opts
-                    cur_pw = 400 if menu_state == "settings" else 300
-                    y_start = -80
-                    for i in range(len(curr_opts)):
-                        btn_rect = pygame.Rect(self.width//2 - cur_pw//2 + 10, self.height//2 + y_start + 20 + i * 70, cur_pw - 20, 50)
-                        if btn_rect.collidepoint(m_x, m_y):
-                            selected = i
-                            break
+                    if menu_state == "main":
+                        cur_pw = 300
+                        y_start = -80
+                        for i in range(len(options)):
+                            btn_rect = pygame.Rect(self.width//2 - cur_pw//2 + 10, self.height//2 + y_start + 20 + i * 70, cur_pw - 20, 50)
+                            if btn_rect.collidepoint(m_x, m_y):
+                                selected = i
+                                break
+                    else:
+                        _, _, _, _, s_rects = self._get_settings_layout()
+                        for i, r in enumerate(s_rects):
+                            if r.collidepoint(m_x, m_y):
+                                selected = i
+                                break
                 elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                     m_x, m_y = event.pos
-                    curr_opts = options if menu_state == "main" else settings_opts
-                    cur_pw = 400 if menu_state == "settings" else 300
-                    y_start = -80
-                    for i in range(len(curr_opts)):
-                        btn_rect = pygame.Rect(self.width//2 - cur_pw//2 + 10, self.height//2 + y_start + 20 + i * 70, cur_pw - 20, 50)
-                        if btn_rect.collidepoint(m_x, m_y):
-                            selected = i
-                            trigger_action = True
-                            break
+                    if menu_state == "main":
+                        cur_pw = 300
+                        y_start = -80
+                        for i in range(len(options)):
+                            btn_rect = pygame.Rect(self.width//2 - cur_pw//2 + 10, self.height//2 + y_start + 20 + i * 70, cur_pw - 20, 50)
+                            if btn_rect.collidepoint(m_x, m_y):
+                                selected = i
+                                trigger_action = True
+                                break
+                    else:
+                        _, _, _, _, s_rects = self._get_settings_layout()
+                        for i, r in enumerate(s_rects):
+                            if r.collidepoint(m_x, m_y):
+                                selected = i
+                                trigger_action = True
+                                break
                 elif event.type == pygame.KEYDOWN:
                     if menu_state == "main":
                         opts_len = len(options)
+                        if event.key == pygame.K_UP:
+                            selected = (selected - 1) % opts_len
+                        elif event.key == pygame.K_DOWN:
+                            selected = (selected + 1) % opts_len
                     else:
-                        opts_len = len(settings_opts)
+                        if event.key == pygame.K_UP:
+                            if selected == 8:
+                                selected = 3
+                            elif selected in (0, 1, 2, 3):
+                                selected = (selected - 1) % 4
+                            elif selected in (4, 5, 6, 7):
+                                selected = 4 + (selected - 4 - 1) % 4
+                        elif event.key == pygame.K_DOWN:
+                            if selected in (0, 1, 2):
+                                selected += 1
+                            elif selected == 3:
+                                selected = 8
+                            elif selected in (4, 5, 6):
+                                selected += 1
+                            elif selected == 7:
+                                selected = 8
+                            elif selected == 8:
+                                selected = 0
+                        elif event.key == pygame.K_LEFT:
+                            if selected in (4, 5, 6, 7):
+                                selected -= 4
+                        elif event.key == pygame.K_RIGHT:
+                            if selected in (0, 1, 2, 3):
+                                selected += 4
 
-                    if event.key == pygame.K_UP:
-                        selected = (selected - 1) % opts_len
-                    elif event.key == pygame.K_DOWN:
-                        selected = (selected + 1) % opts_len
-                    elif event.key == pygame.K_ESCAPE:
+                    if event.key == pygame.K_ESCAPE:
                         if menu_state == "settings":
                             menu_state = "main"
                             selected = 0
@@ -303,14 +414,16 @@ class Menu:
                             idx = next(i for i, (k, v) in enumerate(colors) if v == game_settings["bullet_color"])
                             game_settings["bullet_color"] = colors[(idx + 1) % len(colors)][1]
                         elif selected == 3:
+                            game_settings["fov"] = not game_settings["fov"]
+                        elif selected == 4:
                             game_settings["music"] = not game_settings["music"]
                             assets.update_volumes()
-                        elif selected == 4:
+                        elif selected == 5:
                             game_settings["sound"] = not game_settings["sound"]
                             assets.update_volumes()
-                        elif selected == 5:
-                            game_settings["fov"] = not game_settings["fov"]
                         elif selected == 6:
+                            game_settings["show_fps"] = not game_settings.get("show_fps", True)
+                        elif selected == 7:
                             # Cycle display mode
                             modes = ["Tam Ekran", "Kenarlıksız"]
                             current_mode = game_settings.get("display_mode", "Tam Ekran")
@@ -332,7 +445,7 @@ class Menu:
                                 self.height = h
                                 game_settings["width"] = w
                                 game_settings["height"] = h
-                        elif selected == 7:
+                        elif selected == 8:
                             menu_state = "main"
                             selected = 0
 
@@ -1052,7 +1165,8 @@ class Menu:
                 self._draw_lobby(
                     surface, lobby_players, network.is_host, network.room_id,
                     lobby_chat_messages, lobby_chat_input, lobby_chat_active,
-                    input_fields["player_name"]
+                    input_fields["player_name"],
+                    ping=network.get_ping()
                 )
 
             pygame.display.flip()
@@ -1565,13 +1679,14 @@ class Menu:
             err_surf = assets.fonts['normal'].render(error_msg, True, (255, 80, 80))
             surface.blit(err_surf, (self.width//2 - err_surf.get_width()//2, panel_y + panel_h + 15))
 
-    def _draw_lobby(self, surface, players, is_host, room_id, chat_messages=None, chat_input="", chat_active=False, local_name="Ben"):
+    def _draw_lobby(self, surface, players, is_host, room_id, chat_messages=None, chat_input="", chat_active=False, local_name="Ben", ping=0):
         """Draw the lobby waiting screen with players and room chat."""
         self._draw_title(surface, "LOBİ", y_offset=-280)
 
-        # Room info
+        # Room info & ping
         if room_id:
-            room_info = assets.fonts['small'].render(f"Oda ID: {room_id}", True, (150, 150, 150))
+            ping_txt = f"  |  Ping: {ping} ms" if ping > 0 else ""
+            room_info = assets.fonts['small'].render(f"Oda ID: {room_id}{ping_txt}", True, (150, 150, 150))
             surface.blit(room_info, (self.width//2 - room_info.get_width()//2, self.height//2 - 225))
 
         if chat_messages is None:

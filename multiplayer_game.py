@@ -1303,12 +1303,8 @@ class MultiplayerGameManager:
         # HUD
         self.hud.draw(self.surface, self.player, self.wave, len(self.zombies), self.zombies_required)
 
-        # Draw multiplayer player count indicator
-        local_alive = 1 if (not getattr(self, "is_spectating", False) and not self.game_over) else 0
-        alive_count = local_alive + sum(1 for rp in self.remote_players.values() if rp.is_alive)
-        total_count = 1 + len(self.remote_players)
-        mp_txt = assets.fonts['small'].render(f"Oyuncular: {alive_count}/{total_count}", True, (150, 255, 150))
-        self.surface.blit(mp_txt, (10, 120))
+        # Multiplayer status bar: Players, Ping, FPS
+        self.draw_status_bar(self.surface)
 
         # Spectate overlay banner
         if getattr(self, "is_spectating", False):
@@ -1329,6 +1325,58 @@ class MultiplayerGameManager:
 
         # In-game Chat HUD
         self.draw_in_game_chat(self.surface)
+
+    def draw_status_bar(self, surface):
+        """Draw multiplayer status badges: Players count, Ping, and optional FPS."""
+        local_alive = 1 if (not getattr(self, "is_spectating", False) and not self.game_over) else 0
+        alive_count = local_alive + sum(1 for rp in self.remote_players.values() if rp.is_alive)
+        total_count = 1 + len(self.remote_players)
+
+        font = assets.fonts['small']
+        cur_x = 15
+        cur_y = 118
+        bh = 24
+
+        # 1. Players Badge
+        p_txt = f"Oyuncular: {alive_count}/{total_count}"
+        p_surf = font.render(p_txt, True, (150, 255, 150))
+        bw = p_surf.get_width() + 16
+        s1 = pygame.Surface((bw, bh), pygame.SRCALPHA)
+        pygame.draw.rect(s1, (15, 20, 30, 190), (0, 0, bw, bh), border_radius=4)
+        pygame.draw.rect(s1, (70, 90, 120, 150), (0, 0, bw, bh), 1, border_radius=4)
+        surface.blit(s1, (cur_x, cur_y))
+        surface.blit(p_surf, (cur_x + 8, cur_y + 3))
+        cur_x += bw + 8
+
+        # 2. Ping Badge (Multiplayer only)
+        ping_val = self.network.get_ping() if self.network else 0
+        ping_str = f"Ping: {ping_val} ms" if ping_val > 0 else "Ping: --"
+        if ping_val <= 60:
+            ping_col = (80, 240, 120)  # Green
+        elif ping_val <= 120:
+            ping_col = (255, 210, 60)  # Yellow
+        else:
+            ping_col = (255, 90, 90)   # Red
+
+        ping_surf = font.render(ping_str, True, ping_col)
+        bw_ping = ping_surf.get_width() + 16
+        s2 = pygame.Surface((bw_ping, bh), pygame.SRCALPHA)
+        pygame.draw.rect(s2, (15, 20, 30, 190), (0, 0, bw_ping, bh), border_radius=4)
+        pygame.draw.rect(s2, (70, 90, 120, 150), (0, 0, bw_ping, bh), 1, border_radius=4)
+        surface.blit(s2, (cur_x, cur_y))
+        surface.blit(ping_surf, (cur_x + 8, cur_y + 3))
+        cur_x += bw_ping + 8
+
+        # 3. FPS Badge (if enabled in settings)
+        if game_settings.get("show_fps", True):
+            fps_val = getattr(self, "current_fps", 60)
+            fps_surf = font.render(f"FPS: {fps_val}", True, (200, 240, 200))
+            bw_fps = fps_surf.get_width() + 16
+            s3 = pygame.Surface((bw_fps, bh), pygame.SRCALPHA)
+            pygame.draw.rect(s3, (15, 20, 30, 190), (0, 0, bw_fps, bh), border_radius=4)
+            pygame.draw.rect(s3, (70, 90, 120, 150), (0, 0, bw_fps, bh), 1, border_radius=4)
+            surface.blit(s3, (cur_x, cur_y))
+            surface.blit(fps_surf, (cur_x + 8, cur_y + 3))
 
     def draw_in_game_chat(self, surface):
         """Draw recent chat messages and input prompt/box on the HUD."""
@@ -1415,6 +1463,8 @@ class MultiplayerGameManager:
 
     def run(self):
         clock = pygame.time.Clock()
+        self.clock = clock
+        self.current_fps = 60
         pygame.mouse.set_visible(False)
 
         update_discord_presence(game_state="Multiplayer")
@@ -1422,6 +1472,7 @@ class MultiplayerGameManager:
         while True:
             dt = clock.tick(60)
             dt_factor = min(max(dt / (1000.0 / 60.0), 0.5), 3.0)
+            self.current_fps = int(clock.get_fps())
             current_time = pygame.time.get_ticks()
             self.particles.update(dt)
 
