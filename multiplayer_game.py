@@ -41,6 +41,8 @@ class MultiplayerGameManager:
         self.network_send_interval = 1000 // MULTIPLAYER_TICK_RATE  # ms
         self.last_zombie_sync = 0
         self.zombie_sync_interval = 100  # Authoritative host sync every 100ms (10Hz)
+        self.last_item_sync = 0
+        self.item_sync_interval = 500  # Authoritative item sync every 500ms (2Hz)
 
         # Pre-allocated surfaces for rendering performance
         self.shake_surface = pygame.Surface((self.width, self.height))
@@ -110,10 +112,39 @@ class MultiplayerGameManager:
 
                 if not obs_rect.colliderect(safe_zone) and not overlapping_obs and not overlapping_brk:
                     if random.random() > 0.5:
-                        self.breakables.append(BreakableProp(x, y, w, h, health=10))
+                        prop_id = len(self.breakables)
+                        self.breakables.append(BreakableProp(x, y, w, h, health=10, prop_id=prop_id))
                     else:
                         self.obstacles.append((x, y, w, h))
                     break
+
+    def _destroy_breakable(self, brk):
+        """Destroy a breakable prop, play sound/particles, sync kill and handle drop."""
+        if brk not in self.breakables:
+            return
+        brk_cx = brk.x + brk.width // 2
+        brk_cy = brk.y + brk.height // 2
+        self.particles.add_blood(brk_cx, brk_cy, 15, color=(139, 69, 19))
+        assets.channels['knife_damage'].play(assets.sounds['knife_damage'])
+        self.breakables.remove(brk)
+
+        # Broadcast destruction to other players
+        self.network.send_entity_kill("breakable", getattr(brk, "prop_id", 0))
+
+        # Drop item with 30% chance
+        if random.random() < 0.3:
+            drop_types = ['health', 'stamina', 'ak47', 'shotgun']
+            drop_type = random.choice(drop_types)
+            item_id = f"brk_{getattr(brk, 'prop_id', 0)}_{int(pygame.time.get_ticks())}"
+            item = Item(brk_cx, brk_cy, drop_type, item_id=item_id)
+            self.items.append(item)
+            self.network.send_entity_spawn(
+                entity_type="item",
+                entity_id=item_id,
+                x=brk_cx,
+                y=brk_cy,
+                extra={"item_type": drop_type}
+            )
 
     def spawn_wave(self):
         """Spawn zombies (host only) and broadcast spawn events."""
@@ -193,13 +224,14 @@ class MultiplayerGameManager:
                     safe = False
                     break
             if safe:
-                item = Item(x, y, type)
+                unique_item_id = f"wave_{self.wave}_{type}_{item_id}_{int(x)}_{int(y)}"
+                item = Item(x, y, type, item_id=unique_item_id)
                 self.items.append(item)
 
                 # Broadcast item spawn
                 self.network.send_entity_spawn(
                     entity_type="item",
-                    entity_id=item_id,
+                    entity_id=unique_item_id,
                     x=x, y=y,
                     extra={"item_type": type}
                 )
@@ -235,6 +267,10 @@ class MultiplayerGameManager:
                 self._handle_item_pickup(msg)
             elif msg_type == "zombie_sync":
                 self._handle_zombie_sync(msg)
+            elif msg_type == "item_sync":
+                self._handle_item_sync(msg)
+            elif msg_type == "game_over":
+                self._handle_game_over(msg)
             elif msg_type == "player_left":
                 self._handle_player_left(msg)
             elif msg_type == "host_changed":
@@ -244,6 +280,12 @@ class MultiplayerGameManager:
         """Update remote player state."""
         if sender_id and sender_id in self.remote_players:
             self.remote_players[sender_id].update_from_network(data)
+            # Check team wipe immediately if spectating
+            if getattr(self, "is_spectating", False):
+                if not any(rp.is_alive for rp in self.remote_players.values()):
+                    self.game_over = True
+                    self.is_spectating = False
+                    self.network.send_game_over(self.wave, self.total_kills)
 
     def _handle_remote_bullet(self, data):
         """Create a bullet from a remote player."""
@@ -275,9 +317,10 @@ class MultiplayerGameManager:
             self.zombies.append(z)
         elif entity_type == "item":
             item_type = data.get("item_type", "health")
+            item_id = str(data.get("entity_id", f"{item_type}_{data.get('x',0)}_{data.get('y',0)}"))
             ix, iy = data.get("x", 0), data.get("y", 0)
-            if not any(abs(it.x - ix) < 5 and abs(it.y - iy) < 5 for it in self.items):
-                item = Item(ix, iy, item_type)
+            if not any(getattr(it, "item_id", None) == item_id or (abs(it.x - ix) < 5 and abs(it.y - iy) < 5) for it in self.items):
+                item = Item(ix, iy, item_type, item_id=item_id)
                 self.items.append(item)
 
     def _handle_entity_kill(self, data):
@@ -293,6 +336,15 @@ class MultiplayerGameManager:
                     self.total_kills += 1
                     self.zombies_killed_in_wave += 1
                     break
+        elif entity_type == "breakable":
+            for brk in list(self.breakables):
+                if getattr(brk, "prop_id", None) == entity_id:
+                    brk_cx = brk.x + brk.width // 2
+                    brk_cy = brk.y + brk.height // 2
+                    self.particles.add_blood(brk_cx, brk_cy, 15, color=(139, 69, 19))
+                    assets.channels['knife_damage'].play(assets.sounds['knife_damage'])
+                    self.breakables.remove(brk)
+                    break
 
     def _handle_entity_damage(self, data):
         """Handle entity damage from another player."""
@@ -305,6 +357,18 @@ class MultiplayerGameManager:
                     z.health = data.get("new_health", z.health)
                     z.hit_flash_timer = pygame.time.get_ticks()
                     self.particles.add_blood(z.x + z.size // 2, z.y + z.size // 2, 5)
+                    break
+        elif entity_type == "breakable":
+            for brk in list(self.breakables):
+                if getattr(brk, "prop_id", None) == entity_id:
+                    brk.health = data.get("new_health", brk.health)
+                    brk.hit_flash_timer = pygame.time.get_ticks()
+                    if brk.health <= 0:
+                        brk_cx = brk.x + brk.width // 2
+                        brk_cy = brk.y + brk.height // 2
+                        self.particles.add_blood(brk_cx, brk_cy, 15, color=(139, 69, 19))
+                        assets.channels['knife_damage'].play(assets.sounds['knife_damage'])
+                        self.breakables.remove(brk)
                     break
 
     def _handle_remote_grenade(self, data):
@@ -336,6 +400,15 @@ class MultiplayerGameManager:
 
     def _handle_item_pickup(self, data):
         """Handle item pickup by another player."""
+        item_id = data.get("item_id")
+        ix = data.get("x")
+        iy = data.get("y")
+        for it in list(self.items):
+            if (item_id is not None and getattr(it, "item_id", None) == item_id) or \
+               (ix is not None and iy is not None and abs(it.x - ix) < 15 and abs(it.y - iy) < 15):
+                self.items.remove(it)
+                return
+        # Fallback to item_index if older message format
         item_index = data.get("item_index")
         if item_index is not None and 0 <= item_index < len(self.items):
             self.items.pop(item_index)
@@ -391,6 +464,44 @@ class MultiplayerGameManager:
                 if z.entity_id not in host_ids:
                     self.zombies.remove(z)
 
+    def _handle_item_sync(self, data):
+        """Synchronize ground items from host."""
+        if self.is_host:
+            return  # Host is authoritative
+
+        item_list = data.get("items", [])
+        host_ids = set()
+
+        for item_data in item_list:
+            iid = str(item_data.get("id"))
+            itype = item_data.get("type", "health")
+            ix = item_data.get("x", 0)
+            iy = item_data.get("y", 0)
+            host_ids.add(iid)
+
+            existing = None
+            for it in self.items:
+                if getattr(it, "item_id", None) == iid or (abs(it.x - ix) < 5 and abs(it.y - iy) < 5):
+                    existing = it
+                    break
+
+            if existing is None:
+                new_item = Item(ix, iy, itype, item_id=iid)
+                self.items.append(new_item)
+
+        # Remove items that host no longer has
+        if host_ids or len(item_list) == 0:
+            for it in list(self.items):
+                if getattr(it, "item_id", None) not in host_ids and not any(abs(it.x - item_data["x"]) < 10 and abs(it.y - item_data["y"]) < 10 for item_data in item_list):
+                    self.items.remove(it)
+
+    def _handle_game_over(self, data):
+        """Handle game over event from another player / host."""
+        self.wave = data.get("wave", self.wave)
+        self.total_kills = data.get("total_kills", self.total_kills)
+        self.game_over = True
+        self.is_spectating = False
+
     def _handle_player_left(self, data):
         """Handle a player leaving the game."""
         player_id = data.get("player_id")
@@ -400,6 +511,7 @@ class MultiplayerGameManager:
             if not any(rp.is_alive for rp in self.remote_players.values()):
                 self.game_over = True
                 self.is_spectating = False
+                self.network.send_game_over(self.wave, self.total_kills)
 
     def _handle_host_changed(self, data):
         """Handle host migration when room host leaves."""
@@ -414,24 +526,28 @@ class MultiplayerGameManager:
 
     def _handle_player_death(self):
         """Handle local player dying in multiplayer."""
+        self.player.health = 0
+        self.player.knife_swing = False
+        self.is_aiming_grenade = False
         alive_others = [rp for rp in self.remote_players.values() if rp.is_alive]
         if len(alive_others) > 0:
             self.is_spectating = True
-            self.player.health = 0
-            self.player.knife_swing = False
-            self.is_aiming_grenade = False
             self.particles.add_floating_text(self.player.x, self.player.y, "ÖLDÜNÜZ! İZLEME MODU", (255, 50, 50))
+            self.send_local_state(force=True)
         else:
             self.game_over = True
+            self.is_spectating = False
+            self.send_local_state(force=True)
+            self.network.send_game_over(self.wave, self.total_kills)
 
     # ================================================================
     # SEND LOCAL STATE
     # ================================================================
 
-    def send_local_state(self):
+    def send_local_state(self, force=False):
         """Send local player state to other players."""
         current_time = pygame.time.get_ticks()
-        if current_time - self.last_network_send < self.network_send_interval:
+        if not force and current_time - self.last_network_send < self.network_send_interval:
             return
         self.last_network_send = current_time
 
@@ -477,6 +593,20 @@ class MultiplayerGameManager:
                         for z in self.zombies
                     ]
                     self.network.send_zombie_sync(z_data, wave=self.wave)
+
+            # Host broadcasts authoritative ground items list periodically (every 500ms)
+            if current_time - getattr(self, "last_item_sync", 0) >= self.item_sync_interval:
+                self.last_item_sync = current_time
+                items_data = [
+                    {
+                        "id": getattr(it, "item_id", f"{it.type}_{int(it.x)}_{int(it.y)}"),
+                        "type": it.type,
+                        "x": round(it.x, 1),
+                        "y": round(it.y, 1)
+                    }
+                    for it in self.items
+                ]
+                self.network.send_item_sync(items_data)
 
     # ================================================================
     # GAME LOGIC (mostly from GameManager, adapted for multiplayer)
@@ -690,6 +820,25 @@ class MultiplayerGameManager:
                     if z.health <= 0:
                         self.zombies.remove(z)
                         self.handle_zombie_death(z)
+
+        # Knife attack on breakables
+        for brk in list(self.breakables):
+            brk_cx = brk.x + brk.width // 2
+            brk_cy = brk.y + brk.height // 2
+            dist = math.hypot(brk_cx - center_x, brk_cy - center_y)
+            if dist - brk.width // 2 <= KNIFE_LENGTH:
+                b_angle = math.atan2(brk_cy - center_y, brk_cx - center_x)
+                diff = (b_angle - base_angle + math.pi) % (2 * math.pi) - math.pi
+                if abs(diff) < math.pi / 3:
+                    hit = True
+                    damage = weapons_data["knife"]["damage"]
+                    brk.health -= damage
+                    brk.hit_flash_timer = current_time
+                    self.particles.add_floating_text(brk_cx, brk_cy - 10, str(damage), (255, 255, 255))
+                    self.network.send_entity_damage("breakable", getattr(brk, "prop_id", 0), damage, brk.health)
+                    if brk.health <= 0:
+                        self._destroy_breakable(brk)
+
         if hit:
             assets.channels['knife_damage'].play(assets.sounds['knife_damage'])
         return hit
@@ -740,9 +889,10 @@ class MultiplayerGameManager:
                     ['health', 'stamina', 'ak47', 'shotgun', 'grenade', 'flamethrower', 'sentry'],
                     weights=[20, 20, 12, 12, 10, 10, 10]
                 )[0]
-                item = Item(z.x, z.y, drop_type)
+                unique_item_id = f"zdrop_{z.entity_id}_{int(pygame.time.get_ticks())}"
+                item = Item(z.x, z.y, drop_type, item_id=unique_item_id)
                 self.items.append(item)
-                self.network.send_entity_spawn("item", id(item), z.x, z.y, extra={"item_type": drop_type})
+                self.network.send_entity_spawn("item", unique_item_id, z.x, z.y, extra={"item_type": drop_type})
 
         # Wave management (host only)
         if self.is_host and self.zombies_killed_in_wave >= self.zombies_required:
@@ -857,12 +1007,9 @@ class MultiplayerGameManager:
                         brk.hit_flash_timer = pygame.time.get_ticks()
                         self.particles.add_floating_text(brk.x + brk.width // 2, brk.y, str(damage),
                                                          (255, 255, 255))
+                        self.network.send_entity_damage("breakable", getattr(brk, "prop_id", 0), damage, brk.health)
                         if brk.health <= 0:
-                            if random.random() < 0.3:
-                                drop_types = ['health', 'stamina', 'ak47', 'shotgun']
-                                self.items.append(
-                                    Item(brk.x + brk.width // 2, brk.y + brk.height // 2, random.choice(drop_types)))
-                            self.breakables.remove(brk)
+                            self._destroy_breakable(brk)
                         hit = True
                         break
 
@@ -893,7 +1040,7 @@ class MultiplayerGameManager:
                             break
 
     def update_items(self):
-        for i, item in enumerate(list(self.items)):
+        for item in list(self.items):
             if check_collision((self.player.x, self.player.y), (item.x, item.y), PLAYER_SIZE, item.size):
                 diff = DIFFICULTY_SETTINGS[game_settings["difficulty"]]
                 picked_up = False
@@ -922,9 +1069,10 @@ class MultiplayerGameManager:
                     picked_up = True
 
                 if picked_up:
-                    idx = self.items.index(item)
-                    self.items.remove(item)
-                    self.network.send_item_pickup(idx)
+                    item_id = getattr(item, "item_id", f"{item.type}_{int(item.x)}_{int(item.y)}")
+                    if item in self.items:
+                        self.items.remove(item)
+                    self.network.send_item_pickup(item_id, item.x, item.y)
 
     def update_grenades(self, current_time):
         for g in list(self.grenades):
@@ -949,13 +1097,8 @@ class MultiplayerGameManager:
                     brk_cy = brk.y + brk.height // 2
                     if math.hypot(brk_cx - g.x, brk_cy - g.y) <= GRENADE_RADIUS + brk.width // 2:
                         brk.health = 0
-                        if random.random() < 0.3:
-                            drop_types = ['health', 'stamina', 'ak47', 'shotgun']
-                            self.items.append(Item(brk.x + brk.width // 2, brk.y + brk.height // 2,
-                                                   random.choice(drop_types)))
-                        self.particles.add_blood(brk_cx, brk_cy, 15, color=(139, 69, 19))
-                        self.breakables.remove(brk)
-                        assets.channels['knife_damage'].play(assets.sounds['knife_damage'])
+                        self.network.send_entity_damage("breakable", getattr(brk, "prop_id", 0), 100, 0)
+                        self._destroy_breakable(brk)
 
                 # Kill zombies within radius
                 for z in list(self.zombies):
@@ -1200,6 +1343,7 @@ class MultiplayerGameManager:
                 if not any(rp.is_alive for rp in self.remote_players.values()):
                     self.game_over = True
                     self.is_spectating = False
+                    self.network.send_game_over(self.wave, self.total_kills)
 
             if self.game_over:
                 pygame.mouse.set_visible(True)

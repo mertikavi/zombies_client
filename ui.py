@@ -42,7 +42,7 @@ class HUD:
             
         # Stamina Bar
         is_exhausted = getattr(player, "stamina_exhausted", False)
-        s_txt = assets.fonts['normal'].render("ENERJİ (TÜKENDİ)" if is_exhausted else "ENERJİ", True, (255, 120, 50) if is_exhausted else WHITE)
+        s_txt = assets.fonts['normal'].render("ENERJİ", True, (255, 120, 50) if is_exhausted else WHITE)
         surface.blit(s_txt, (20, 65))
         
         s_fill_w = max(0, int((self.display_stamina / MAX_PLAYER_STAMINA) * bar_w))

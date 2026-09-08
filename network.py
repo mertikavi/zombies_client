@@ -253,11 +253,30 @@ class NetworkClient:
             "y": round(y, 1)
         })
 
-    def send_item_pickup(self, item_index):
-        """Send item pickup event to prevent double-pickup."""
-        self._send({
+    def send_item_pickup(self, item_id, x=None, y=None):
+        """Send item pickup event with item_id and optional coordinates."""
+        data = {
             "type": "item_pickup",
-            "item_index": item_index
+            "item_id": item_id
+        }
+        if x is not None and y is not None:
+            data["x"] = round(x, 1)
+            data["y"] = round(y, 1)
+        self._send(data)
+
+    def send_item_sync(self, items: list):
+        """Send authoritative item list from host to clients."""
+        self._send({
+            "type": "item_sync",
+            "items": items
+        })
+
+    def send_game_over(self, wave, total_kills):
+        """Send game over event to all players in room."""
+        self._send({
+            "type": "game_over",
+            "wave": wave,
+            "total_kills": total_kills
         })
 
     def send_wave_change(self, wave, zombies_required, map_seed=None):

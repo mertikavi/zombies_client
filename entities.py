@@ -370,11 +370,12 @@ class Bullet:
         pygame.draw.circle(surface, game_settings["bullet_color"], (int(self.x), int(self.y)), self.size)
 
 class Item:
-    def __init__(self, x, y, type):
+    def __init__(self, x, y, type, item_id=None):
         self.x = x
         self.y = y
         self.size = 30
         self.type = type # 'health', 'stamina', 'ak47', 'shotgun'
+        self.item_id = str(item_id) if item_id is not None else f"{type}_{int(x)}_{int(y)}"
         self.spawn_time = pygame.time.get_ticks()
         
     def draw(self, surface, assets):
@@ -419,13 +420,14 @@ class Item:
 
 
 class BreakableProp:
-    def __init__(self, x, y, width, height, health=30):
+    def __init__(self, x, y, width, height, health=30, prop_id=0):
         self.x = x
         self.y = y
         self.width = width
         self.height = height
         self.health = health
         self.max_health = health
+        self.prop_id = prop_id
         self.hit_flash_timer = 0
         
     def draw(self, surface):
