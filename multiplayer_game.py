@@ -77,6 +77,7 @@ class MultiplayerGameManager:
         self.pet = Pet(self.width // 2, self.height // 2)
 
         self.game_over = False
+        self.is_spectating = False
         self.is_paused = False
 
         # Use map_seed for deterministic obstacle generation
@@ -85,7 +86,7 @@ class MultiplayerGameManager:
         random.seed()  # Reset to random seed
 
         if self.is_host:
-            self.menu.show_wave_transition(self.surface, self.wave)
+            self.menu.start_wave_transition(self.wave)
             self.spawn_wave()
             self.spawn_wave_items()
 
@@ -236,6 +237,8 @@ class MultiplayerGameManager:
                 self._handle_zombie_sync(msg)
             elif msg_type == "player_left":
                 self._handle_player_left(msg)
+            elif msg_type == "host_changed":
+                self._handle_host_changed(msg)
 
     def _handle_remote_player_update(self, sender_id, data):
         """Update remote player state."""
@@ -313,7 +316,16 @@ class MultiplayerGameManager:
         self.wave = data.get("wave", self.wave)
         self.zombies_required = data.get("zombies_required", self.zombies_required)
         self.zombies_killed_in_wave = 0
-        self.menu.show_wave_transition(self.surface, self.wave)
+        self.menu.start_wave_transition(self.wave)
+
+        # Respawn local player if spectating
+        if getattr(self, "is_spectating", False):
+            self.is_spectating = False
+            self.game_over = False
+            self.player.health = self.player.max_health
+            self.player.x = self.width // 2
+            self.player.y = self.height // 2
+            self.particles.add_floating_text(self.player.x, self.player.y, "CANLANDIN!", (100, 255, 100))
 
     def _handle_item_pickup(self, data):
         """Handle item pickup by another player."""
@@ -350,6 +362,33 @@ class MultiplayerGameManager:
         player_id = data.get("player_id")
         if player_id in self.remote_players:
             del self.remote_players[player_id]
+        if getattr(self, "is_spectating", False):
+            if not any(rp.is_alive for rp in self.remote_players.values()):
+                self.game_over = True
+                self.is_spectating = False
+
+    def _handle_host_changed(self, data):
+        """Handle host migration when room host leaves."""
+        new_host_id = data.get("new_host_id")
+        if new_host_id == self.network.player_id:
+            self.is_host = True
+            self.particles.add_floating_text(self.player.x, self.player.y, "YENİ ODA SAHİBİ SİZSİNİZ!", (50, 255, 100))
+            if len(self.zombies) < 5:
+                self.spawn_wave()
+        else:
+            self.is_host = False
+
+    def _handle_player_death(self):
+        """Handle local player dying in multiplayer."""
+        alive_others = [rp for rp in self.remote_players.values() if rp.is_alive]
+        if len(alive_others) > 0:
+            self.is_spectating = True
+            self.player.health = 0
+            self.player.knife_swing = False
+            self.is_aiming_grenade = False
+            self.particles.add_floating_text(self.player.x, self.player.y, "ÖLDÜNÜZ! İZLEME MODU", (255, 50, 50))
+        else:
+            self.game_over = True
 
     # ================================================================
     # SEND LOCAL STATE
@@ -367,6 +406,9 @@ class MultiplayerGameManager:
         py = self.player.y + PLAYER_SIZE // 2
         angle = math.atan2(mouse_pos[1] - py, mouse_pos[0] - px)
 
+        pet_x = self.pet.x if getattr(self, "pet", None) else 0
+        pet_y = self.pet.y if getattr(self, "pet", None) else 0
+
         self.network.send_player_update(
             x=self.player.x,
             y=self.player.y,
@@ -377,7 +419,9 @@ class MultiplayerGameManager:
             is_sprinting=self.player.is_sprinting,
             is_dashing=self.player.is_dashing,
             knife_swing=self.player.knife_swing,
-            is_alive=not self.game_over
+            is_alive=not self.game_over and not getattr(self, "is_spectating", False),
+            pet_x=pet_x,
+            pet_y=pet_y
         )
 
         # Host broadcasts authoritative zombie positions
@@ -596,12 +640,13 @@ class MultiplayerGameManager:
             zy = z.y + z.size // 2
 
             # Player damage (only local player)
-            if math.hypot((self.player.x + PLAYER_SIZE // 2) - zx,
-                          (self.player.y + PLAYER_SIZE // 2) - zy) < 100:
-                self.player.health -= 30
-                self.particles.add_floating_text(self.player.x, self.player.y, "30", (255, 0, 0))
-                if self.player.health <= 0:
-                    self.game_over = True
+            if not getattr(self, "is_spectating", False) and not self.game_over:
+                if math.hypot((self.player.x + PLAYER_SIZE // 2) - zx,
+                              (self.player.y + PLAYER_SIZE // 2) - zy) < 100:
+                    self.player.health -= 30
+                    self.particles.add_floating_text(self.player.x, self.player.y, "30", (255, 0, 0))
+                    if self.player.health <= 0:
+                        self._handle_player_death()
 
             for other_z in list(self.zombies):
                 if math.hypot((other_z.x + other_z.size // 2) - zx,
@@ -635,11 +680,18 @@ class MultiplayerGameManager:
             self.wave += 1
             self.zombies_required = int(self.zombies_required * 1.5)
             self.zombies_killed_in_wave = 0
-            self.menu.show_wave_transition(self.surface, self.wave)
+            self.menu.start_wave_transition(self.wave)
             self.spawn_wave()
             self.spawn_wave_items()
             self.network.send_wave_change(self.wave, self.zombies_required)
             update_discord_presence(self.wave, self.total_kills, self.player.health)
+            if getattr(self, "is_spectating", False):
+                self.is_spectating = False
+                self.game_over = False
+                self.player.health = self.player.max_health
+                self.player.x = self.width // 2
+                self.player.y = self.height // 2
+                self.particles.add_floating_text(self.player.x, self.player.y, "CANLANDIN!", (100, 255, 100))
 
     def update_zombies(self, dt_factor=1.0):
         """All clients update zombie movement locally (deterministic)."""
@@ -648,8 +700,10 @@ class MultiplayerGameManager:
         py = self.player.y + PLAYER_SIZE // 2
         current_time = pygame.time.get_ticks()
 
-        # Find nearest player target for each zombie (local + remotes)
-        all_player_positions = [(px, py)]
+        # Find nearest player target for each zombie (local + remotes, alive only)
+        all_player_positions = []
+        if not getattr(self, "is_spectating", False) and not self.game_over:
+            all_player_positions.append((px, py))
         for rp in self.remote_players.values():
             if rp.is_alive:
                 all_player_positions.append((rp.x + rp.size // 2, rp.y + rp.size // 2))
@@ -658,14 +712,15 @@ class MultiplayerGameManager:
             zx = z.x + z.size // 2
             zy = z.y + z.size // 2
 
-            # Find nearest player
+            # Find nearest alive player
             nearest_dist = float('inf')
             target_x, target_y = px, py
-            for tpx, tpy in all_player_positions:
-                d = math.hypot(tpx - zx, tpy - zy)
-                if d < nearest_dist:
-                    nearest_dist = d
-                    target_x, target_y = tpx, tpy
+            if all_player_positions:
+                for tpx, tpy in all_player_positions:
+                    d = math.hypot(tpx - zx, tpy - zy)
+                    if d < nearest_dist:
+                        nearest_dist = d
+                        target_x, target_y = tpx, tpy
 
             angle = math.atan2(target_y - zy, target_x - zx)
             speed = z.speed * diff["zombie_speed_multiplier"] * dt_factor
@@ -694,13 +749,14 @@ class MultiplayerGameManager:
             z.y = max(0, min(self.height - z.size, z.y))
 
             # Damage to LOCAL player only (no friendly fire)
-            if check_collision((self.player.x, self.player.y), (z.x, z.y), PLAYER_SIZE, z.size):
-                if current_time - z.last_damage_time > DAMAGE_COOLDOWN:
-                    z.last_damage_time = current_time
-                    dmg = 20 if z.type == "normal" else (40 if z.type == "durable" else 30)
-                    self.player.health -= dmg * diff["zombie_damage_multiplier"]
-                    if self.player.health <= 0:
-                        self.game_over = True
+            if not getattr(self, "is_spectating", False) and not self.game_over:
+                if check_collision((self.player.x, self.player.y), (z.x, z.y), PLAYER_SIZE, z.size):
+                    if current_time - z.last_damage_time > DAMAGE_COOLDOWN:
+                        z.last_damage_time = current_time
+                        dmg = 20 if z.type == "normal" else (40 if z.type == "durable" else 30)
+                        self.player.health -= dmg * diff["zombie_damage_multiplier"]
+                        if self.player.health <= 0:
+                            self._handle_player_death()
 
     def update_bullets(self):
         for b in list(self.bullets):
@@ -807,13 +863,14 @@ class MultiplayerGameManager:
                 assets.channels['grenade'].play(assets.sounds['grenade'])
 
                 # Self-damage
-                p_dist = math.hypot((self.player.x + PLAYER_SIZE // 2) - g.x,
-                                    (self.player.y + PLAYER_SIZE // 2) - g.y)
-                if p_dist <= GRENADE_RADIUS:
-                    self.player.health -= 100
-                    self.particles.add_floating_text(self.player.x, self.player.y, "100", (255, 0, 0))
-                    if self.player.health <= 0:
-                        self.game_over = True
+                if not getattr(self, "is_spectating", False) and not self.game_over:
+                    p_dist = math.hypot((self.player.x + PLAYER_SIZE // 2) - g.x,
+                                        (self.player.y + PLAYER_SIZE // 2) - g.y)
+                    if p_dist <= GRENADE_RADIUS:
+                        self.player.health -= 100
+                        self.particles.add_floating_text(self.player.x, self.player.y, "100", (255, 0, 0))
+                        if self.player.health <= 0:
+                            self._handle_player_death()
 
                 # Break breakables
                 for brk in list(self.breakables):
@@ -949,7 +1006,9 @@ class MultiplayerGameManager:
         # Draw particles
         self.particles.draw(shake_surface, font=assets.fonts['small'])
 
-        self.pet.draw(shake_surface)
+        # Draw local pet and player if alive
+        if not getattr(self, "is_spectating", False):
+            self.pet.draw(shake_surface)
 
         # Draw grenades
         for g in self.grenades:
@@ -959,14 +1018,15 @@ class MultiplayerGameManager:
         for rp in self.remote_players.values():
             rp.draw(shake_surface)
 
-        # Draw local player
-        self.player.draw(shake_surface, pygame.mouse.get_pos(), draw_name=True)
+        # Draw local player if alive
+        if not getattr(self, "is_spectating", False):
+            self.player.draw(shake_surface, pygame.mouse.get_pos(), draw_name=True)
 
         # Vignette
         shake_surface.fill((0, 0, 20, 30), special_flags=pygame.BLEND_RGBA_SUB)
 
-        # FOV cone
-        if game_settings.get("fov", False):
+        # FOV cone (only active when player is alive)
+        if game_settings.get("fov", False) and not getattr(self, "is_spectating", False):
             px = self.player.x + PLAYER_SIZE // 2
             py = self.player.y + PLAYER_SIZE // 2
             mx, my = pygame.mouse.get_pos()
@@ -994,10 +1054,25 @@ class MultiplayerGameManager:
         self.hud.draw(self.surface, self.player, self.wave, len(self.zombies), self.zombies_required)
 
         # Draw multiplayer player count indicator
-        alive_count = 1 + sum(1 for rp in self.remote_players.values() if rp.is_alive)
+        local_alive = 1 if (not getattr(self, "is_spectating", False) and not self.game_over) else 0
+        alive_count = local_alive + sum(1 for rp in self.remote_players.values() if rp.is_alive)
         total_count = 1 + len(self.remote_players)
         mp_txt = assets.fonts['small'].render(f"Oyuncular: {alive_count}/{total_count}", True, (150, 255, 150))
         self.surface.blit(mp_txt, (10, 120))
+
+        # Spectate overlay banner
+        if getattr(self, "is_spectating", False):
+            spec_w, spec_h = 360, 65
+            spec_x = self.width // 2 - spec_w // 2
+            spec_y = self.height - 110
+            HUD(self.width, self.height).draw_glass_panel(self.surface, (spec_x, spec_y, spec_w, spec_h))
+            t1 = assets.fonts['normal'].render("İzliyorsunuz", True, (255, 215, 0))
+            t2 = assets.fonts['small'].render("Yeni dalgada canlanacaksınız", True, (220, 220, 220))
+            self.surface.blit(t1, (self.width // 2 - t1.get_width() // 2, spec_y + 10))
+            self.surface.blit(t2, (self.width // 2 - t2.get_width() // 2, spec_y + 36))
+
+        # Wave transition banner (non-blocking)
+        self.menu.draw_wave_overlay(self.surface)
 
         # Crosshair
         draw_crosshair(self.surface, *pygame.mouse.get_pos(), 15, game_settings["bullet_color"])
@@ -1049,6 +1124,12 @@ class MultiplayerGameManager:
                             self.sentries_deployed.append(SentryGun(center_x, center_y))
                             self.network.send_sentry_place(center_x, center_y)
 
+            # Check team wipe if spectating
+            if getattr(self, "is_spectating", False):
+                if not any(rp.is_alive for rp in self.remote_players.values()):
+                    self.game_over = True
+                    self.is_spectating = False
+
             if self.game_over:
                 pygame.mouse.set_visible(True)
                 update_discord_presence(wave=self.wave, zombies_killed=self.total_kills, game_state="MP Game Over")
@@ -1073,16 +1154,25 @@ class MultiplayerGameManager:
                     self.wave += 1
                     self.zombies_killed_in_wave = 0
                     self.zombies_required = int(self.zombies_required * 1.5)
-                    self.menu.show_wave_transition(self.surface, self.wave)
+                    self.menu.start_wave_transition(self.wave)
                     self.spawn_wave()
                     self.spawn_wave_items()
                     self.network.send_wave_change(self.wave, self.zombies_required)
+                    # Respawn host if spectating
+                    if getattr(self, "is_spectating", False):
+                        self.is_spectating = False
+                        self.game_over = False
+                        self.player.health = self.player.max_health
+                        self.player.x = self.width // 2
+                        self.player.y = self.height // 2
+                        self.particles.add_floating_text(self.player.x, self.player.y, "CANLANDIN!", (100, 255, 100))
                 elif len(self.zombies) < 5:
                     self.spawn_wave()
 
             self.update_sentries(current_time)
-            self.handle_input(dt, dt_factor)
-            self.handle_shooting(pygame.mouse.get_pos())
+            if not getattr(self, "is_spectating", False):
+                self.handle_input(dt, dt_factor)
+                self.handle_shooting(pygame.mouse.get_pos())
             self.update_zombies(dt_factor)
             self.update_bullets()
             self.update_grenades(current_time)

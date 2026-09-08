@@ -209,6 +209,7 @@ class Menu:
                     f"Müzik: {'Açık' if game_settings['music'] else 'Kapalı'}",
                     f"Ses Efektleri: {'Açık' if game_settings['sound'] else 'Kapalı'}",
                     f"Görüş Alanı (FOV): {'Açık' if game_settings['fov'] else 'Kapalı'}",
+                    f"Ekran Modu: {game_settings.get('display_mode', 'Tam Ekran')}",
                     "Geri"
                 ]
                 self._draw_menu_options(surface, settings_opts, selected, panel_w=400)
@@ -305,6 +306,35 @@ class Menu:
                         elif selected == 5:
                             game_settings["fov"] = not game_settings["fov"]
                         elif selected == 6:
+                            # Cycle display mode
+                            modes = ["Tam Ekran", "Pencere", "Kenarlıksız"]
+                            current_mode = game_settings.get("display_mode", "Tam Ekran")
+                            idx = modes.index(current_mode) if current_mode in modes else 0
+                            new_mode = modes[(idx + 1) % len(modes)]
+                            game_settings["display_mode"] = new_mode
+                            # Apply display mode change
+                            info = pygame.display.Info()
+                            w, h = info.current_w, info.current_h
+                            if new_mode == "Tam Ekran":
+                                surface = pygame.display.set_mode((w, h), pygame.FULLSCREEN)
+                                self.width = w
+                                self.height = h
+                                game_settings["width"] = w
+                                game_settings["height"] = h
+                            elif new_mode == "Pencere":
+                                win_w, win_h = int(w * 0.8), int(h * 0.8)
+                                surface = pygame.display.set_mode((win_w, win_h), pygame.RESIZABLE)
+                                self.width = win_w
+                                self.height = win_h
+                                game_settings["width"] = win_w
+                                game_settings["height"] = win_h
+                            elif new_mode == "Kenarlıksız":
+                                surface = pygame.display.set_mode((w, h), pygame.NOFRAME)
+                                self.width = w
+                                self.height = h
+                                game_settings["width"] = w
+                                game_settings["height"] = h
+                        elif selected == 7:
                             menu_state = "main"
                             selected = 0
 
@@ -347,6 +377,7 @@ class Menu:
         return "main_menu"
 
     def show_wave_transition(self, surface, wave):
+        """Blocking wave transition — used in single-player only."""
         overlay = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
         overlay.fill((0, 0, 0, 180)) # Dark transparent background
         surface.blit(overlay, (0, 0))
@@ -362,6 +393,38 @@ class Menu:
         # Wait a bit and clear events so player doesn't accidentally skip or shoot during transition
         pygame.time.delay(2000)
         pygame.event.clear()
+
+    def start_wave_transition(self, wave):
+        """Non-blocking wave transition — starts an overlay timer for multiplayer."""
+        self._wave_overlay_wave = wave
+        self._wave_overlay_start = pygame.time.get_ticks()
+        self._wave_overlay_duration = 2000  # ms
+
+    def draw_wave_overlay(self, surface):
+        """Draw the wave transition overlay if active. Call every frame. Non-blocking."""
+        if not hasattr(self, '_wave_overlay_start') or self._wave_overlay_start is None:
+            return
+        elapsed = pygame.time.get_ticks() - self._wave_overlay_start
+        if elapsed >= self._wave_overlay_duration:
+            self._wave_overlay_start = None
+            return
+        
+        # Fade: full opacity for first 1.5s, then fade out in last 0.5s
+        if elapsed < 1500:
+            alpha = 180
+        else:
+            alpha = int(180 * (1.0 - (elapsed - 1500) / 500.0))
+        
+        overlay = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, max(0, alpha)))
+        surface.blit(overlay, (0, 0))
+        
+        wave = self._wave_overlay_wave
+        txt = assets.fonts['large'].render(f"DALGA {wave}", True, RED)
+        sub_txt = assets.fonts['normal'].render("Hazırlan...", True, WHITE)
+        
+        surface.blit(txt, (self.width//2 - txt.get_width()//2, self.height//2 - 50))
+        surface.blit(sub_txt, (self.width//2 - sub_txt.get_width()//2, self.height//2 + 30))
 
     # ================================================================
     # TUTORIAL & OYUN REHBERİ
@@ -967,6 +1030,163 @@ class Menu:
                     network.disconnect()
                     return ("quit", None)
 
+                # Mouse click support for multiplayer menus
+                if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                    m_x, m_y = event.pos
+                    if state == "browser":
+                        panel_w = 600
+                        panel_h = 400
+                        panel_x = self.width//2 - panel_w//2
+                        panel_y = self.height//2 - 180
+                        # "Create Room" button
+                        create_rect = pygame.Rect(panel_x + 10, panel_y + 15, panel_w - 20, 40)
+                        # "Back" button
+                        back_rect = pygame.Rect(panel_x + 10, panel_y + panel_h + 15, 170, 40)
+
+                        if create_rect.collidepoint(m_x, m_y):
+                            state = "create"
+                            active_field = "player_name"
+                            input_fields["player_name"] = ""
+                            input_fields["room_name"] = ""
+                            input_fields["password"] = ""
+                            selected = 0
+                        elif back_rect.collidepoint(m_x, m_y):
+                            network.disconnect()
+                            return ("back", None)
+                        else:
+                            # Room rows
+                            row_y_start = panel_y + 100
+                            for i, room in enumerate(rooms_list):
+                                row_rect = pygame.Rect(panel_x + 10, row_y_start + i * 50 - 5, panel_w - 20, 40)
+                                if row_rect.collidepoint(m_x, m_y):
+                                    if room.get("game_started"):
+                                        error_msg = "Oyun zaten başlamış!"
+                                        error_timer = current_time
+                                    elif room.get("player_count", 0) >= room.get("max_players", 4):
+                                        error_msg = "Oda dolu!"
+                                        error_timer = current_time
+                                    else:
+                                        selected_room = room
+                                        state = "join"
+                                        input_fields["player_name"] = ""
+                                        input_fields["password"] = ""
+                                        active_field = "player_name"
+                                    break
+                    elif state == "create":
+                        panel_w = 450
+                        panel_x = self.width//2 - panel_w//2
+                        panel_y = self.height//2 - 150
+                        # Click on input fields to focus them
+                        field_configs = [
+                            ("player_name", panel_y + 65),
+                            ("room_name", panel_y + 155),
+                            ("password", panel_y + 245),
+                        ]
+                        clicked_field = False
+                        for field_key, fy in field_configs:
+                            field_rect = pygame.Rect(panel_x + 30, fy, panel_w - 60, 35)
+                            if field_rect.collidepoint(m_x, m_y):
+                                active_field = field_key
+                                clicked_field = True
+                                break
+
+                        if not clicked_field:
+                            # Check Create / Back buttons
+                            btn_create = pygame.Rect(panel_x + 30, panel_y + 300, 185, 42)
+                            btn_back = pygame.Rect(panel_x + panel_w - 215, panel_y + 300, 185, 42)
+                            if btn_create.collidepoint(m_x, m_y):
+                                pname = input_fields["player_name"].strip()
+                                rname = input_fields["room_name"].strip()
+                                pw = input_fields["password"].strip() or None
+                                if not pname:
+                                    error_msg = "Oyuncu adı boş olamaz!"
+                                    error_timer = current_time
+                                elif not rname:
+                                    error_msg = "Oda adı boş olamaz!"
+                                    error_timer = current_time
+                                else:
+                                    network.create_room(rname, pname, pw)
+                            elif btn_back.collidepoint(m_x, m_y):
+                                state = "browser"
+                                selected = 0
+
+                    elif state == "join":
+                        panel_w = 450
+                        panel_x = self.width//2 - panel_w//2
+                        panel_y = self.height//2 - 100
+                        field_configs = [
+                            ("player_name", panel_y + 65),
+                            ("password", panel_y + 155),
+                        ]
+                        clicked_field = False
+                        for field_key, fy in field_configs:
+                            field_rect = pygame.Rect(panel_x + 30, fy, panel_w - 60, 35)
+                            if field_rect.collidepoint(m_x, m_y):
+                                active_field = field_key
+                                clicked_field = True
+                                break
+
+                        if not clicked_field:
+                            # Check Join / Back buttons
+                            btn_join = pygame.Rect(panel_x + 30, panel_y + 215, 185, 42)
+                            btn_back = pygame.Rect(panel_x + panel_w - 215, panel_y + 215, 185, 42)
+                            if btn_join.collidepoint(m_x, m_y):
+                                pname = input_fields["player_name"].strip()
+                                pw = input_fields["password"].strip() or None
+                                if not pname:
+                                    error_msg = "Oyuncu adı boş olamaz!"
+                                    error_timer = current_time
+                                elif selected_room:
+                                    network.join_room(selected_room["room_id"], pname, pw)
+                            elif btn_back.collidepoint(m_x, m_y):
+                                state = "browser"
+                                selected = 0
+
+                    elif state == "lobby":
+                        panel_w = 450
+                        panel_y = self.height//2 - 180
+                        panel_h = 350
+                        if network.is_host:
+                            btn_start = pygame.Rect(self.width//2 - 215, panel_y + panel_h + 15, 205, 45)
+                            btn_leave = pygame.Rect(self.width//2 + 10, panel_y + panel_h + 15, 205, 45)
+                            if btn_start.collidepoint(m_x, m_y):
+                                import random
+                                seed = random.randint(0, 999999)
+                                network.start_game(seed)
+                                game_start_data = {
+                                    "map_seed": seed,
+                                    "players": lobby_players
+                                }
+                                return ("start_game", game_start_data)
+                            elif btn_leave.collidepoint(m_x, m_y):
+                                network.leave_room()
+                                state = "browser"
+                                selected = 0
+                        else:
+                            btn_leave = pygame.Rect(self.width//2 - 100, panel_y + panel_h + 15, 200, 45)
+                            if btn_leave.collidepoint(m_x, m_y):
+                                network.leave_room()
+                                state = "browser"
+                                selected = 0
+
+                elif event.type == pygame.MOUSEMOTION:
+                    m_x, m_y = event.pos
+                    if state == "browser":
+                        panel_w = 600
+                        panel_x = self.width//2 - panel_w//2
+                        panel_y = self.height//2 - 180
+                        # Create button hover
+                        create_rect = pygame.Rect(panel_x + 10, panel_y + 15, panel_w - 20, 40)
+                        if create_rect.collidepoint(m_x, m_y):
+                            selected = 0
+                        else:
+                            row_y_start = panel_y + 100
+                            for i in range(len(rooms_list)):
+                                row_rect = pygame.Rect(panel_x + 10, row_y_start + i * 50 - 5, panel_w - 20, 40)
+                                if row_rect.collidepoint(m_x, m_y):
+                                    selected = i + 1
+                                    break
+
                 if event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_ESCAPE:
                         if state == "create" or state == "join":
@@ -1145,17 +1365,24 @@ class Menu:
                     status_color = (100, 255, 100)
                 surface.blit(assets.fonts['small'].render(status_str, True, status_color), (panel_x + 490, row_y + 4))
 
+        # Navigation back button
+        back_rect = pygame.Rect(panel_x + 10, panel_y + panel_h + 15, 170, 40)
+        pygame.draw.rect(surface, (40, 40, 60), back_rect, border_radius=6)
+        pygame.draw.rect(surface, (80, 80, 120), back_rect, 1, border_radius=6)
+        back_txt = assets.fonts['normal'].render("<- Geri (ESC)", True, WHITE)
+        surface.blit(back_txt, (back_rect.centerx - back_txt.get_width()//2, back_rect.centery - back_txt.get_height()//2))
+
         # Error message
         if error_msg:
             err_surf = assets.fonts['normal'].render(error_msg, True, (255, 80, 80))
-            surface.blit(err_surf, (self.width//2 - err_surf.get_width()//2, panel_y + panel_h + 10))
+            surface.blit(err_surf, (self.width//2 - err_surf.get_width()//2, panel_y + panel_h + 65))
 
     def _draw_create_room(self, surface, fields, active_field, error_msg=""):
         """Draw the create room dialog."""
         self._draw_title(surface, "ODA OLUŞTUR", y_offset=-280)
 
         panel_w = 450
-        panel_h = 350
+        panel_h = 370
         panel_x = self.width//2 - panel_w//2
         panel_y = self.height//2 - 150
         HUD(self.width, self.height).draw_glass_panel(surface, (panel_x, panel_y, panel_w, panel_h))
@@ -1192,21 +1419,30 @@ class Menu:
             surface.blit(txt_surf, (panel_x + 40, y + 5))
             y += 55
 
-        # Hint
-        hint = assets.fonts['small'].render("TAB: Sonraki Alan  |  ENTER: Oluştur  |  ESC: Geri", True, (150, 150, 150))
-        surface.blit(hint, (self.width//2 - hint.get_width()//2, y + 10))
+        # Buttons
+        btn_create = pygame.Rect(panel_x + 30, panel_y + 300, 185, 42)
+        btn_back = pygame.Rect(panel_x + panel_w - 215, panel_y + 300, 185, 42)
+        pygame.draw.rect(surface, (30, 120, 60), btn_create, border_radius=6)
+        pygame.draw.rect(surface, (60, 220, 100), btn_create, 1, border_radius=6)
+        c_txt = assets.fonts['normal'].render("Oluştur (ENTER)", True, WHITE)
+        surface.blit(c_txt, (btn_create.centerx - c_txt.get_width()//2, btn_create.centery - c_txt.get_height()//2))
+
+        pygame.draw.rect(surface, (70, 35, 35), btn_back, border_radius=6)
+        pygame.draw.rect(surface, (150, 60, 60), btn_back, 1, border_radius=6)
+        b_txt = assets.fonts['normal'].render("Geri (ESC)", True, WHITE)
+        surface.blit(b_txt, (btn_back.centerx - b_txt.get_width()//2, btn_back.centery - b_txt.get_height()//2))
 
         # Error
         if error_msg:
             err_surf = assets.fonts['normal'].render(error_msg, True, (255, 80, 80))
-            surface.blit(err_surf, (self.width//2 - err_surf.get_width()//2, y + 40))
+            surface.blit(err_surf, (self.width//2 - err_surf.get_width()//2, panel_y + panel_h + 15))
 
     def _draw_join_room_dialog(self, surface, fields, active_field, room_name, error_msg=""):
         """Draw the join room dialog."""
         self._draw_title(surface, f"ODAYA KATIL: {room_name}", y_offset=-250)
 
         panel_w = 450
-        panel_h = 250
+        panel_h = 280
         panel_x = self.width//2 - panel_w//2
         panel_y = self.height//2 - 100
         HUD(self.width, self.height).draw_glass_panel(surface, (panel_x, panel_y, panel_w, panel_h))
@@ -1238,12 +1474,22 @@ class Menu:
             surface.blit(txt_surf, (panel_x + 40, y + 5))
             y += 55
 
-        hint = assets.fonts['small'].render("ENTER: Katıl  |  ESC: Geri", True, (150, 150, 150))
-        surface.blit(hint, (self.width//2 - hint.get_width()//2, y + 10))
+        # Buttons
+        btn_join = pygame.Rect(panel_x + 30, panel_y + 215, 185, 42)
+        btn_back = pygame.Rect(panel_x + panel_w - 215, panel_y + 215, 185, 42)
+        pygame.draw.rect(surface, (30, 120, 60), btn_join, border_radius=6)
+        pygame.draw.rect(surface, (60, 220, 100), btn_join, 1, border_radius=6)
+        j_txt = assets.fonts['normal'].render("Katıl (ENTER)", True, WHITE)
+        surface.blit(j_txt, (btn_join.centerx - j_txt.get_width()//2, btn_join.centery - j_txt.get_height()//2))
+
+        pygame.draw.rect(surface, (70, 35, 35), btn_back, border_radius=6)
+        pygame.draw.rect(surface, (150, 60, 60), btn_back, 1, border_radius=6)
+        b_txt = assets.fonts['normal'].render("Geri (ESC)", True, WHITE)
+        surface.blit(b_txt, (btn_back.centerx - b_txt.get_width()//2, btn_back.centery - b_txt.get_height()//2))
 
         if error_msg:
             err_surf = assets.fonts['normal'].render(error_msg, True, (255, 80, 80))
-            surface.blit(err_surf, (self.width//2 - err_surf.get_width()//2, y + 40))
+            surface.blit(err_surf, (self.width//2 - err_surf.get_width()//2, panel_y + panel_h + 15))
 
     def _draw_lobby(self, surface, players, is_host, room_id):
         """Draw the lobby waiting screen."""
@@ -1286,9 +1532,22 @@ class Menu:
         wait_txt = assets.fonts['normal'].render(f"Bekleniyor{dots}", True, (100, 100, 100))
         surface.blit(wait_txt, (self.width//2 - wait_txt.get_width()//2, panel_y + panel_h - 50))
 
-        # Bottom instructions
+        # Bottom buttons
         if is_host:
-            hint = assets.fonts['normal'].render("ENTER: Oyunu Başlat  |  ESC: Ayrıl", True, (50, 255, 100))
+            btn_start = pygame.Rect(self.width//2 - 215, panel_y + panel_h + 15, 205, 45)
+            btn_leave = pygame.Rect(self.width//2 + 10, panel_y + panel_h + 15, 205, 45)
+            pygame.draw.rect(surface, (30, 140, 60), btn_start, border_radius=6)
+            pygame.draw.rect(surface, (60, 230, 100), btn_start, 2, border_radius=6)
+            s_txt = assets.fonts['normal'].render("Oyunu Başlat", True, WHITE)
+            surface.blit(s_txt, (btn_start.centerx - s_txt.get_width()//2, btn_start.centery - s_txt.get_height()//2))
+
+            pygame.draw.rect(surface, (70, 35, 35), btn_leave, border_radius=6)
+            pygame.draw.rect(surface, (160, 60, 60), btn_leave, 1, border_radius=6)
+            l_txt = assets.fonts['normal'].render("Ayrıl (ESC)", True, WHITE)
+            surface.blit(l_txt, (btn_leave.centerx - l_txt.get_width()//2, btn_leave.centery - l_txt.get_height()//2))
         else:
-            hint = assets.fonts['normal'].render("Host oyunu başlatmasını bekleyin...  |  ESC: Ayrıl", True, (150, 150, 150))
-        surface.blit(hint, (self.width//2 - hint.get_width()//2, panel_y + panel_h + 20))
+            btn_leave = pygame.Rect(self.width//2 - 100, panel_y + panel_h + 15, 200, 45)
+            pygame.draw.rect(surface, (70, 35, 35), btn_leave, border_radius=6)
+            pygame.draw.rect(surface, (160, 60, 60), btn_leave, 1, border_radius=6)
+            l_txt = assets.fonts['normal'].render("Ayrıl (ESC)", True, WHITE)
+            surface.blit(l_txt, (btn_leave.centerx - l_txt.get_width()//2, btn_leave.centery - l_txt.get_height()//2))

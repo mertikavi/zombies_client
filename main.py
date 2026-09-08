@@ -13,11 +13,21 @@ def main():
     
     # Setup Display
     info = pygame.display.Info()
-    width, height = info.current_w, info.current_h
+    full_w, full_h = info.current_w, info.current_h
+    disp_mode = game_settings.get("display_mode", "Tam Ekran")
+
+    if disp_mode == "Pencere":
+        width, height = int(full_w * 0.8), int(full_h * 0.8)
+        screen = pygame.display.set_mode((width, height), pygame.RESIZABLE)
+    elif disp_mode == "Kenarlıksız":
+        width, height = full_w, full_h
+        screen = pygame.display.set_mode((width, height), pygame.NOFRAME)
+    else:
+        width, height = full_w, full_h
+        screen = pygame.display.set_mode((width, height), pygame.FULLSCREEN)
+
     game_settings["width"] = width
     game_settings["height"] = height
-    
-    screen = pygame.display.set_mode((width, height), pygame.FULLSCREEN)
     pygame.display.set_caption("Zombi Kaçışı")
     pygame.mouse.set_visible(False)
     
@@ -78,9 +88,15 @@ def main():
     
     # --- MAIN MENU / GAME LOOP ---
     menu = Menu(width, height)
-    
+
     while True:
+        screen = pygame.display.get_surface()
+        width, height = screen.get_width(), screen.get_height()
+        menu.width, menu.height = width, height
         res = menu.show_main_menu(screen)
+        screen = pygame.display.get_surface()
+        width, height = screen.get_width(), screen.get_height()
+        menu.width, menu.height = width, height
         if res == "play":
             game = GameManager(screen, width, height)
             game.run()
@@ -99,6 +115,9 @@ def _handle_multiplayer(screen, width, height, menu):
     network = NetworkClient()
 
     while True:
+        screen = pygame.display.get_surface()
+        width, height = screen.get_width(), screen.get_height()
+        menu.width, menu.height = width, height
         result = menu.show_multiplayer_menu(screen, network)
         action = result[0]
         data = result[1]

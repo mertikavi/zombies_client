@@ -576,6 +576,9 @@ class RemotePlayer:
         self.is_alive = True
         self.size = PLAYER_SIZE
         self.last_update_time = 0
+        # Pet tracking
+        self.pet_x = 0
+        self.pet_y = 0
     
     def update_from_network(self, data):
         """Update state from network message."""
@@ -590,6 +593,9 @@ class RemotePlayer:
         self.knife_swing = data.get("knife_swing", self.knife_swing)
         self.is_alive = data.get("is_alive", self.is_alive)
         self.last_update_time = pygame.time.get_ticks()
+        # Pet position
+        self.pet_x = data.get("pet_x", self.pet_x)
+        self.pet_y = data.get("pet_y", self.pet_y)
     
     def interpolate(self, lerp_factor=0.45):
         """Smoothly interpolate position towards target."""
@@ -665,3 +671,12 @@ class RemotePlayer:
         if health_ratio > 0:
             fill_color = (50, 255, 50) if health_ratio > 0.5 else (255, 255, 0) if health_ratio > 0.25 else (255, 50, 50)
             pygame.draw.rect(surface, fill_color, (bar_x, bar_y, int(bar_width * health_ratio), bar_height), border_radius=2)
+
+        # Draw remote player's pet (dog)
+        if self.pet_x > 0 or self.pet_y > 0:
+            pet_size = 15
+            pet_color = (139, 69, 19)
+            pygame.draw.rect(surface, pet_color, (self.pet_x, self.pet_y, pet_size, pet_size), border_radius=4)
+            pygame.draw.circle(surface, (0, 0, 0), (int(self.pet_x + 4), int(self.pet_y + 4)), 2)
+            pygame.draw.circle(surface, (0, 0, 0), (int(self.pet_x + 10), int(self.pet_y + 4)), 2)
+

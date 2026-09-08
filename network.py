@@ -171,7 +171,8 @@ class NetworkClient:
         self._send(data)
 
     def send_player_update(self, x, y, health, stamina, weapon, angle,
-                           is_sprinting, is_dashing, knife_swing, is_alive=True):
+                           is_sprinting, is_dashing, knife_swing, is_alive=True,
+                           pet_x=0, pet_y=0):
         """Send player state update."""
         self._send({
             "type": "player_update",
@@ -184,7 +185,9 @@ class NetworkClient:
             "is_sprinting": is_sprinting,
             "is_dashing": is_dashing,
             "knife_swing": knife_swing,
-            "is_alive": is_alive
+            "is_alive": is_alive,
+            "pet_x": round(pet_x, 1),
+            "pet_y": round(pet_y, 1)
         })
 
     def send_bullet_fire(self, x, y, dx, dy, speed, spread=0, weapon_type="normal"):
