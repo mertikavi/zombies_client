@@ -16,10 +16,7 @@ def main():
     full_w, full_h = info.current_w, info.current_h
     disp_mode = game_settings.get("display_mode", "Tam Ekran")
 
-    if disp_mode == "Pencere":
-        width, height = int(full_w * 0.8), int(full_h * 0.8)
-        screen = pygame.display.set_mode((width, height), pygame.RESIZABLE)
-    elif disp_mode == "Kenarlıksız":
+    if disp_mode == "Kenarlıksız":
         width, height = full_w, full_h
         screen = pygame.display.set_mode((width, height), pygame.NOFRAME)
     else:

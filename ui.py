@@ -307,7 +307,7 @@ class Menu:
                             game_settings["fov"] = not game_settings["fov"]
                         elif selected == 6:
                             # Cycle display mode
-                            modes = ["Tam Ekran", "Pencere", "Kenarlıksız"]
+                            modes = ["Tam Ekran", "Kenarlıksız"]
                             current_mode = game_settings.get("display_mode", "Tam Ekran")
                             idx = modes.index(current_mode) if current_mode in modes else 0
                             new_mode = modes[(idx + 1) % len(modes)]
@@ -321,13 +321,6 @@ class Menu:
                                 self.height = h
                                 game_settings["width"] = w
                                 game_settings["height"] = h
-                            elif new_mode == "Pencere":
-                                win_w, win_h = int(w * 0.8), int(h * 0.8)
-                                surface = pygame.display.set_mode((win_w, win_h), pygame.RESIZABLE)
-                                self.width = win_w
-                                self.height = win_h
-                                game_settings["width"] = win_w
-                                game_settings["height"] = win_h
                             elif new_mode == "Kenarlıksız":
                                 surface = pygame.display.set_mode((w, h), pygame.NOFRAME)
                                 self.width = w
