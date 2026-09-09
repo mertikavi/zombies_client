@@ -1,4 +1,5 @@
 import os
+import sys
 import json
 
 # --- COLORS ---
@@ -37,7 +38,28 @@ BULLET_COLORS = {
 }
 
 # --- GLOBAL GAME SETTINGS ---
-SETTINGS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "settings.json")
+def _resolve_settings_path():
+    """
+    Resolve persistent settings.json path.
+    When running as a PyInstaller bundle, sys.frozen is True and __file__ points
+    to a temporary extraction folder (_MEIxxxx). We must save settings next to
+    the actual executable (or in the project root if running dist/main.exe).
+    """
+    if getattr(sys, 'frozen', False):
+        exe_dir = os.path.dirname(sys.executable)
+        parent_dir = os.path.dirname(exe_dir)
+        # If running from a 'dist' folder, check if parent is project root with assets/settings
+        if os.path.basename(exe_dir).lower() == "dist" and (
+            os.path.exists(os.path.join(parent_dir, "settings.json")) or 
+            os.path.exists(os.path.join(parent_dir, "assets"))
+        ):
+            return os.path.join(parent_dir, "settings.json")
+        return os.path.join(exe_dir, "settings.json")
+    else:
+        # Standard Python execution: project root next to config.py
+        return os.path.join(os.path.dirname(os.path.abspath(__file__)), "settings.json")
+
+SETTINGS_FILE = _resolve_settings_path()
 
 game_settings = {
     "player_name": "",
@@ -57,6 +79,7 @@ game_settings = {
 def save_settings():
     """Save current game settings to settings.json."""
     try:
+        os.makedirs(os.path.dirname(os.path.abspath(SETTINGS_FILE)), exist_ok=True)
         char_c_name = next((k for k, v in CHARACTER_COLORS.items() if v == game_settings.get('character_color')), "Sarı")
         bull_c_name = next((k for k, v in BULLET_COLORS.items() if v == game_settings.get('bullet_color')), "Sarı")
         data = {
@@ -73,11 +96,13 @@ def save_settings():
         }
         with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=4, ensure_ascii=False)
+        print(f"[SETTINGS] Saved successfully to {SETTINGS_FILE}")
     except Exception as e:
         print(f"[SETTINGS] Save failed: {e}")
 
 def load_settings():
     """Load settings from settings.json or create defaults if not found."""
+    print(f"[SETTINGS] Using settings file: {SETTINGS_FILE}")
     if not os.path.exists(SETTINGS_FILE):
         save_settings()
         return

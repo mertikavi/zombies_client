@@ -140,3 +140,12 @@ def draw_crosshair(surface, x, y, size=10, color=WHITE):
     pygame.draw.line(surface, color, (x - size, y), (x + size, y), 2)
     pygame.draw.line(surface, color, (x, y - size), (x, y + size), 2)
     pygame.draw.circle(surface, color, (x, y), 3)
+
+def safe_remove(target_list, item):
+    """Safely remove an item from a list if present, suppressing ValueError."""
+    try:
+        target_list.remove(item)
+        return True
+    except (ValueError, KeyError, AttributeError):
+        return False
+

@@ -325,6 +325,26 @@ class NetworkClient:
             "message": message
         })
 
+    def send_return_to_lobby(self):
+        """Notify server that player has returned to the lobby."""
+        self._send({
+            "type": "return_to_lobby"
+        })
+
+    def kick_player(self, target_player_id: str):
+        """Host kicks a player from the room."""
+        self._send({
+            "type": "kick_player",
+            "target_player_id": target_player_id
+        })
+
+    def send_game_pause(self, paused: bool):
+        """Send pause/unpause event to room."""
+        self._send({
+            "type": "game_pause",
+            "paused": paused
+        })
+
     def get_ping(self) -> int:
         """Return the current latency in milliseconds."""
         return self.ping

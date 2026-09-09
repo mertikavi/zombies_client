@@ -557,7 +557,7 @@ class Menu:
 
             clock.tick(60)
 
-    def show_game_over(self, surface, wave, total_kills):
+    def show_game_over(self, surface, wave, total_kills, is_multiplayer=False):
         # Modern Grid Background for Game Over
         self._draw_background(surface)
         
@@ -569,12 +569,13 @@ class Menu:
         title_shadow = assets.fonts['large'].render("GAME OVER", True, BLACK)
         
         # Glass panel
-        panel_w, panel_h = 400, 200
+        panel_w, panel_h = 450, 200
         HUD(self.width, self.height).draw_glass_panel(surface, (self.width//2 - panel_w//2, self.height//2 - 80, panel_w, panel_h))
         
         wave_txt = assets.fonts['normal'].render(f"Ulaştığın Dalga: {wave}", True, WHITE)
         kills_txt = assets.fonts['normal'].render(f"Öldürdüğün Zombi: {total_kills}", True, WHITE)
-        restart_txt = assets.fonts['normal'].render("Ana Menü için ENTER tuşuna bas...", True, (100, 255, 100))
+        prompt_str = "Odaya Dönmek için ENTER tuşuna bas..." if is_multiplayer else "Ana Menü için ENTER tuşuna bas..."
+        restart_txt = assets.fonts['normal'].render(prompt_str, True, (100, 255, 100))
         
         surface.blit(title_shadow, (self.width//2 - title.get_width()//2 + 4, self.height//2 - 160 + 4))
         surface.blit(title, (self.width//2 - title.get_width()//2, self.height//2 - 160))
@@ -594,7 +595,7 @@ class Menu:
                     if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
                         waiting = False
             clock.tick(60)
-        return "main_menu"
+        return "lobby" if is_multiplayer else "main_menu"
 
     def show_wave_transition(self, surface, wave):
         """Blocking wave transition — used in single-player only."""
@@ -853,14 +854,15 @@ class Menu:
         controls = [
             ("W, A, S, D", "Karakteri hareket ettirir (Yukarı / Sol / Aşağı / Sağ)"),
             ("SOL SHIFT", "Hızlı Koşu / Depar (Enerji - Stamina harcar)"),
-            ("BOŞLUK", "Ani Kaçış (Dash - 1 sn bekleme, engellerden sıyrılma)"),
-            ("ESC", "Oyunu Duraklat / Ayarlar & Çıkış Menüsü")
+            ("BOŞLUK", "Ani Kaçış (Dash - engellerden hızla sıyrılma)"),
+            ("P / ESC", "Oyunu Duraklat (P) / Menü & Ayarlar (ESC)"),
+            ("Y TUŞU", "Çok Oyunculuda Sohbet Penceresini Açar")
         ]
-        cur_y = card1_rect.y + 52
+        cur_y = card1_rect.y + 44
         for key_label, desc in controls:
             bw = self._draw_key_badge(surface, card1_rect.x + 16, cur_y, key_label, badge_w=95)
             self._draw_wrapped_text(surface, desc, assets.fonts['small'], (220, 230, 240), card1_rect.x + 16 + bw + 12, cur_y + 3, col_w - bw - 40, 18)
-            cur_y += 44
+            cur_y += 38
 
         # Card 2: Hayatta Kalma Taktikleri
         card2_y = card1_rect.bottom + 12
@@ -1197,6 +1199,11 @@ class Menu:
         game_started = False
         game_start_data = None
 
+        # If returning from a game with active room, switch to lobby and inform server
+        if network.connected and network.room_id:
+            state = "lobby"
+            network.send_return_to_lobby()
+
         # Connect to server
         if not network.connected:
             connected = network.connect()
@@ -1206,7 +1213,7 @@ class Menu:
 
         # Request room list
         last_room_refresh_time = pygame.time.get_ticks()
-        if network.connected:
+        if network.connected and state != "lobby":
             network.list_rooms()
 
         while True:
@@ -1253,6 +1260,13 @@ class Menu:
                     pass  # room_update handles this
                 elif msg_type == "host_changed":
                     network.is_host = (msg.get("new_host_id") == network.player_id)
+                elif msg_type == "kicked":
+                    state = "browser"
+                    network.room_id = None
+                    network.is_host = False
+                    error_msg = msg.get("message", "Odadan atıldınız!")
+                    error_timer = current_time
+                    network.list_rooms()
                 elif msg_type == "game_started":
                     game_started = True
                     game_start_data = msg
@@ -1283,7 +1297,8 @@ class Menu:
                     surface, lobby_players, network.is_host, network.room_id,
                     lobby_chat_messages, lobby_chat_input, lobby_chat_active,
                     input_fields["player_name"],
-                    ping=network.get_ping()
+                    ping=network.get_ping(),
+                    error_msg=error_msg if current_time - error_timer < 3000 else ""
                 )
 
             pygame.display.flip()
@@ -1397,7 +1412,7 @@ class Menu:
 
                     elif state == "lobby":
                         panel_h = 360
-                        left_w = 330
+                        left_w = 350
                         right_w = 370
                         spacing = 20
                         total_w = left_w + spacing + right_w
@@ -1406,35 +1421,53 @@ class Menu:
                         panel_y = self.height // 2 - 190
                         chat_input_rect = pygame.Rect(right_x + 15, panel_y + panel_h - 48, right_w - 30, 36)
 
-                        if chat_input_rect.collidepoint(m_x, m_y):
-                            lobby_chat_active = True
-                        else:
-                            lobby_chat_active = False
+                        # Check if host clicked any kick button
+                        kick_clicked = False
+                        if network.is_host and hasattr(self, "_lobby_kick_buttons"):
+                            for k_rect, pid, pname in self._lobby_kick_buttons:
+                                if k_rect.collidepoint(m_x, m_y):
+                                    network.kick_player(pid)
+                                    error_msg = f"{pname} odadan atıldı."
+                                    error_timer = current_time
+                                    kick_clicked = True
+                                    break
 
-                        if network.is_host:
-                            btn_start = pygame.Rect(self.width // 2 - 215, panel_y + panel_h + 18, 205, 45)
-                            btn_leave = pygame.Rect(self.width // 2 + 10, panel_y + panel_h + 18, 205, 45)
-                            if btn_start.collidepoint(m_x, m_y):
-                                import random
-                                seed = random.randint(0, 999999)
-                                network.start_game(seed)
-                                game_start_data = {
-                                    "map_seed": seed,
-                                    "players": lobby_players
-                                }
-                                return ("start_game", game_start_data)
-                            elif btn_leave.collidepoint(m_x, m_y):
-                                network.leave_room()
-                                state = "browser"
-                                selected = 0
-                                network.list_rooms()
-                        else:
-                            btn_leave = pygame.Rect(self.width // 2 - 100, panel_y + panel_h + 18, 200, 45)
-                            if btn_leave.collidepoint(m_x, m_y):
-                                network.leave_room()
-                                state = "browser"
-                                selected = 0
-                                network.list_rooms()
+                        if not kick_clicked:
+                            if chat_input_rect.collidepoint(m_x, m_y):
+                                lobby_chat_active = True
+                            else:
+                                lobby_chat_active = False
+
+                            if network.is_host:
+                                btn_start = pygame.Rect(self.width // 2 - 215, panel_y + panel_h + 18, 205, 45)
+                                btn_leave = pygame.Rect(self.width // 2 + 10, panel_y + panel_h + 18, 205, 45)
+                                if btn_start.collidepoint(m_x, m_y):
+                                    # Verify all ready
+                                    not_ready = [p for p in lobby_players if p.get("ready_state") == "Oyunda"]
+                                    if not_ready:
+                                        error_msg = "Tüm oyuncuların odaya dönmesi bekleniyor!"
+                                        error_timer = current_time
+                                    else:
+                                        import random
+                                        seed = random.randint(0, 999999)
+                                        network.start_game(seed)
+                                        game_start_data = {
+                                            "map_seed": seed,
+                                            "players": lobby_players
+                                        }
+                                        return ("start_game", game_start_data)
+                                elif btn_leave.collidepoint(m_x, m_y):
+                                    network.leave_room()
+                                    state = "browser"
+                                    selected = 0
+                                    network.list_rooms()
+                            else:
+                                btn_leave = pygame.Rect(self.width // 2 - 100, panel_y + panel_h + 18, 200, 45)
+                                if btn_leave.collidepoint(m_x, m_y):
+                                    network.leave_room()
+                                    state = "browser"
+                                    selected = 0
+                                    network.list_rooms()
 
                 elif event.type == pygame.MOUSEMOTION:
                     m_x, m_y = event.pos
@@ -1572,14 +1605,19 @@ class Menu:
                                 lobby_chat_active = True
                             elif event.key == pygame.K_RETURN:
                                 if network.is_host:
-                                    import random
-                                    seed = random.randint(0, 999999)
-                                    network.start_game(seed)
-                                    game_start_data = {
-                                        "map_seed": seed,
-                                        "players": lobby_players
-                                    }
-                                    return ("start_game", game_start_data)
+                                    not_ready = [p for p in lobby_players if p.get("ready_state") == "Oyunda"]
+                                    if not_ready:
+                                        error_msg = "Tüm oyuncuların odaya dönmesi bekleniyor!"
+                                        error_timer = current_time
+                                    else:
+                                        import random
+                                        seed = random.randint(0, 999999)
+                                        network.start_game(seed)
+                                        game_start_data = {
+                                            "map_seed": seed,
+                                            "players": lobby_players
+                                        }
+                                        return ("start_game", game_start_data)
 
             clock.tick(60)
 
@@ -1781,8 +1819,8 @@ class Menu:
             err_surf = assets.fonts['normal'].render(error_msg, True, (255, 80, 80))
             surface.blit(err_surf, (self.width//2 - err_surf.get_width()//2, panel_y + panel_h + 15))
 
-    def _draw_lobby(self, surface, players, is_host, room_id, chat_messages=None, chat_input="", chat_active=False, local_name="Ben", ping=0):
-        """Draw the lobby waiting screen with players and room chat."""
+    def _draw_lobby(self, surface, players, is_host, room_id, chat_messages=None, chat_input="", chat_active=False, local_name="Ben", ping=0, error_msg=""):
+        """Draw the lobby waiting screen with players, ready states, kick buttons, and room chat."""
         self._draw_title(surface, "LOBİ", y_offset=-280)
 
         # Room info & ping
@@ -1794,9 +1832,12 @@ class Menu:
         if chat_messages is None:
             chat_messages = []
 
+        self._lobby_kick_buttons = []
+        all_ready = all(p.get("ready_state") != "Oyunda" for p in players)
+
         # Dual panel dimensions
         panel_h = 360
-        left_w = 330
+        left_w = 350
         right_w = 370
         spacing = 20
         total_w = left_w + spacing + right_w
@@ -1807,25 +1848,80 @@ class Menu:
         # === LEFT PANEL: PLAYERS ===
         HUD(self.width, self.height).draw_glass_panel(surface, (left_x, panel_y, left_w, panel_h))
 
-        header = assets.fonts['normal'].render("Oyuncular", True, (160, 200, 255))
+        header = assets.fonts['normal'].render(f"Oyuncular ({len(players)}/4)", True, (160, 200, 255))
         surface.blit(header, (left_x + 20, panel_y + 15))
         pygame.draw.line(surface, (70, 90, 120), (left_x + 20, panel_y + 45), (left_x + left_w - 20, panel_y + 45))
 
-        y = panel_y + 60
+        y = panel_y + 55
         player_colors = [(0, 200, 255), (255, 100, 200), (100, 255, 100), (255, 200, 50)]
         for i, p in enumerate(players):
             color = player_colors[i % len(player_colors)]
+            p_index = p.get("join_index", i + 1)
             name = p.get("player_name", "?")
-            role = " (Host)" if p.get("is_host") else ""
+            p_is_host = p.get("is_host", False)
+            r_state = p.get("ready_state", "Hazır")
 
-            pygame.draw.circle(surface, color, (left_x + 35, y + 12), 8)
-            name_surf = assets.fonts['normal'].render(f"{name}{role}", True, WHITE)
-            surface.blit(name_surf, (left_x + 55, y))
-            y += 45
+            # Sleek dark card background for each player
+            row_x = left_x + 15
+            row_w = left_w - 30
+            row_h = 38
+            card_rect = pygame.Rect(row_x, y, row_w, row_h)
+            pygame.draw.rect(surface, (24, 30, 44), card_rect, border_radius=6)
+            pygame.draw.rect(surface, (48, 62, 88), card_rect, 1, border_radius=6)
+
+            # Player index & color dot
+            idx_txt = assets.fonts['small'].render(f"#{p_index}", True, (130, 150, 180))
+            surface.blit(idx_txt, (row_x + 10, y + 10))
+            pygame.draw.circle(surface, color, (row_x + 38, y + 19), 6)
+            pygame.draw.circle(surface, (20, 20, 30), (row_x + 38, y + 19), 6, 1)
+
+            # Player name
+            d_name = name
+            if len(d_name) > 11:
+                d_name = d_name[:10] + ".."
+            name_surf = assets.fonts['normal'].render(d_name, True, WHITE)
+            surface.blit(name_surf, (row_x + 52, y + 7))
+
+            # Host badge tag
+            if p_is_host:
+                host_tag = assets.fonts['small'].render("HOST", True, (255, 215, 0))
+                surface.blit(host_tag, (row_x + 56 + name_surf.get_width(), y + 10))
+
+            # Status Badge & Kick Button (neatly aligned inside the card)
+            can_kick = (is_host and not p_is_host)
+            badge_w = 64 if r_state == "Oyunda" else 56
+
+            if can_kick:
+                kick_w = 38
+                kick_x = row_x + row_w - kick_w - 8
+                kick_rect = pygame.Rect(kick_x, y + 7, kick_w, 24)
+                badge_x = kick_x - badge_w - 6
+                target_pid = p.get("player_id", p.get("id"))
+                self._lobby_kick_buttons.append((kick_rect, target_pid, name))
+                pygame.draw.rect(surface, (130, 30, 30), kick_rect, border_radius=4)
+                pygame.draw.rect(surface, (220, 70, 70), kick_rect, 1, border_radius=4)
+                at_txt = assets.fonts['small'].render("At", True, (255, 220, 220))
+                surface.blit(at_txt, (kick_rect.centerx - at_txt.get_width()//2, kick_rect.centery - at_txt.get_height()//2))
+            else:
+                badge_x = row_x + row_w - badge_w - 8
+
+            badge_rect = pygame.Rect(badge_x, y + 7, badge_w, 24)
+            if r_state == "Oyunda":
+                pygame.draw.rect(surface, (48, 34, 14), badge_rect, border_radius=4)
+                pygame.draw.rect(surface, (230, 160, 40), badge_rect, 1, border_radius=4)
+                badge_txt = assets.fonts['small'].render("Oyunda", True, (255, 190, 60))
+            else:
+                pygame.draw.rect(surface, (16, 44, 26), badge_rect, border_radius=4)
+                pygame.draw.rect(surface, (60, 200, 100), badge_rect, 1, border_radius=4)
+                badge_txt = assets.fonts['small'].render("Hazır", True, (90, 240, 130))
+            surface.blit(badge_txt, (badge_rect.centerx - badge_txt.get_width()//2, badge_rect.centery - badge_txt.get_height()//2))
+
+            y += 46
 
         dots = "." * ((pygame.time.get_ticks() // 500) % 4)
-        wait_txt = assets.fonts['normal'].render(f"Bekleniyor{dots}", True, (120, 130, 150))
-        surface.blit(wait_txt, (left_x + left_w//2 - wait_txt.get_width()//2, panel_y + panel_h - 45))
+        wait_label = "Tüm oyuncular hazır" if all_ready else "Oyuncular bekleniyor"
+        wait_txt = assets.fonts['small'].render(f"{wait_label}{dots}", True, (120, 140, 160))
+        surface.blit(wait_txt, (left_x + left_w//2 - wait_txt.get_width()//2, panel_y + panel_h - 38))
 
         # === RIGHT PANEL: LOBBY CHAT ===
         HUD(self.width, self.height).draw_glass_panel(surface, (right_x, panel_y, right_w, panel_h))
@@ -1874,9 +1970,15 @@ class Menu:
         if is_host:
             btn_start = pygame.Rect(self.width//2 - 215, panel_y + panel_h + 18, 205, 45)
             btn_leave = pygame.Rect(self.width//2 + 10, panel_y + panel_h + 18, 205, 45)
-            pygame.draw.rect(surface, (30, 140, 60), btn_start, border_radius=6)
-            pygame.draw.rect(surface, (60, 230, 100), btn_start, 2, border_radius=6)
-            s_txt = assets.fonts['normal'].render("Oyunu Başlat", True, WHITE)
+
+            if all_ready:
+                pygame.draw.rect(surface, (30, 140, 60), btn_start, border_radius=6)
+                pygame.draw.rect(surface, (60, 230, 100), btn_start, 2, border_radius=6)
+                s_txt = assets.fonts['normal'].render("Oyunu Başlat", True, WHITE)
+            else:
+                pygame.draw.rect(surface, (45, 50, 60), btn_start, border_radius=6)
+                pygame.draw.rect(surface, (75, 80, 90), btn_start, 1, border_radius=6)
+                s_txt = assets.fonts['small'].render("Oyunda Olanlar Var", True, (150, 150, 150))
             surface.blit(s_txt, (btn_start.centerx - s_txt.get_width()//2, btn_start.centery - s_txt.get_height()//2))
 
             pygame.draw.rect(surface, (70, 35, 35), btn_leave, border_radius=6)
@@ -1889,3 +1991,8 @@ class Menu:
             pygame.draw.rect(surface, (160, 60, 60), btn_leave, 1, border_radius=6)
             l_txt = assets.fonts['normal'].render("Ayrıl (ESC)", True, WHITE)
             surface.blit(l_txt, (btn_leave.centerx - l_txt.get_width()//2, btn_leave.centery - l_txt.get_height()//2))
+
+        # Error message under buttons if any
+        if error_msg:
+            err_surf = assets.fonts['normal'].render(error_msg, True, (255, 80, 80))
+            surface.blit(err_surf, (self.width//2 - err_surf.get_width()//2, panel_y + panel_h + 72))

@@ -10,7 +10,7 @@ import math
 import sys
 from config import *
 from assets import assets
-from utils import check_collision, check_player_collision_with_obstacles, draw_crosshair, update_discord_presence, get_shadow_surface
+from utils import check_collision, check_player_collision_with_obstacles, draw_crosshair, update_discord_presence, get_shadow_surface, safe_remove
 from entities import Player, Zombie, Bullet, Item, Grenade, BreakableProp, Pet, SentryGun, RemotePlayer
 from ui import HUD, Menu
 from particles import ParticleSystem
@@ -93,6 +93,9 @@ class MultiplayerGameManager:
         self.game_over = False
         self.is_spectating = False
         self.is_paused = False
+        self.show_exit_confirm = False
+        self.kicked = False
+        self.kicked_message = ""
 
         # Use map_seed for deterministic obstacle generation
         random.seed(self.map_seed)
@@ -138,7 +141,7 @@ class MultiplayerGameManager:
         brk_cy = brk.y + brk.height // 2
         self.particles.add_blood(brk_cx, brk_cy, 15, color=(139, 69, 19))
         assets.channels['knife_damage'].play(assets.sounds['knife_damage'])
-        self.breakables.remove(brk)
+        safe_remove(self.breakables, brk)
 
         # Broadcast destruction to other players
         self.network.send_entity_kill("breakable", getattr(brk, "prop_id", 0))
@@ -289,6 +292,16 @@ class MultiplayerGameManager:
                 self._handle_player_left(msg)
             elif msg_type == "host_changed":
                 self._handle_host_changed(msg)
+            elif msg_type == "game_pause":
+                self.is_paused = msg.get("paused", False)
+                if self.is_paused:
+                    pygame.mouse.set_visible(True)
+                else:
+                    if not self.is_chatting:
+                        pygame.mouse.set_visible(False)
+            elif msg_type == "kicked":
+                self.kicked = True
+                self.kicked_message = msg.get("message", "Odadan atıldınız!")
 
     def _handle_chat(self, data):
         """Handle incoming chat message from server."""
@@ -363,7 +376,7 @@ class MultiplayerGameManager:
             for z in list(self.zombies):
                 if z.entity_id == entity_id:
                     self.particles.add_blood(z.x + z.size // 2, z.y + z.size // 2, 15)
-                    self.zombies.remove(z)
+                    safe_remove(self.zombies, z)
                     self.total_kills += 1
                     self.zombies_killed_in_wave += 1
                     break
@@ -374,7 +387,7 @@ class MultiplayerGameManager:
                     brk_cy = brk.y + brk.height // 2
                     self.particles.add_blood(brk_cx, brk_cy, 15, color=(139, 69, 19))
                     assets.channels['knife_damage'].play(assets.sounds['knife_damage'])
-                    self.breakables.remove(brk)
+                    safe_remove(self.breakables, brk)
                     break
 
     def _handle_entity_damage(self, data):
@@ -399,7 +412,7 @@ class MultiplayerGameManager:
                         brk_cy = brk.y + brk.height // 2
                         self.particles.add_blood(brk_cx, brk_cy, 15, color=(139, 69, 19))
                         assets.channels['knife_damage'].play(assets.sounds['knife_damage'])
-                        self.breakables.remove(brk)
+                        safe_remove(self.breakables, brk)
                     break
 
     def _handle_remote_grenade(self, data):
@@ -437,12 +450,15 @@ class MultiplayerGameManager:
         for it in list(self.items):
             if (item_id is not None and getattr(it, "item_id", None) == item_id) or \
                (ix is not None and iy is not None and abs(it.x - ix) < 15 and abs(it.y - iy) < 15):
-                self.items.remove(it)
+                safe_remove(self.items, it)
                 return
         # Fallback to item_index if older message format
         item_index = data.get("item_index")
         if item_index is not None and 0 <= item_index < len(self.items):
-            self.items.pop(item_index)
+            try:
+                self.items.pop(item_index)
+            except IndexError:
+                pass
 
     def _handle_zombie_sync(self, data):
         """Synchronize zombie positions from host to eliminate desync on low FPS clients."""
@@ -493,7 +509,7 @@ class MultiplayerGameManager:
         if host_ids:
             for z in list(self.zombies):
                 if z.entity_id not in host_ids:
-                    self.zombies.remove(z)
+                    safe_remove(self.zombies, z)
 
     def _handle_item_sync(self, data):
         """Synchronize ground items from host."""
@@ -524,7 +540,7 @@ class MultiplayerGameManager:
         if host_ids or len(item_list) == 0:
             for it in list(self.items):
                 if getattr(it, "item_id", None) not in host_ids and not any(abs(it.x - item_data["x"]) < 10 and abs(it.y - item_data["y"]) < 10 for item_data in item_list):
-                    self.items.remove(it)
+                    safe_remove(self.items, it)
 
     def _handle_game_over(self, data):
         """Handle game over event from another player / host."""
@@ -703,8 +719,8 @@ class MultiplayerGameManager:
                                              (200, 200, 255))
             self.particles.add_blood(attacked_zombie.x + attacked_zombie.size // 2,
                                      attacked_zombie.y + attacked_zombie.size // 2, 5)
-            if attacked_zombie.health <= 0 and attacked_zombie in self.zombies:
-                self.zombies.remove(attacked_zombie)
+            if attacked_zombie.health <= 0:
+                safe_remove(self.zombies, attacked_zombie)
                 self.handle_zombie_death(attacked_zombie)
 
         # Dash Logic
@@ -858,7 +874,7 @@ class MultiplayerGameManager:
                     self.network.send_entity_damage("zombie", z.entity_id, damage, z.health)
 
                     if z.health <= 0:
-                        self.zombies.remove(z)
+                        safe_remove(self.zombies, z)
                         self.handle_zombie_death(z)
 
         # Knife attack on breakables
@@ -907,13 +923,15 @@ class MultiplayerGameManager:
                         self._handle_player_death()
 
             for other_z in list(self.zombies):
+                if other_z not in self.zombies:
+                    continue
                 if math.hypot((other_z.x + other_z.size // 2) - zx,
                               (other_z.y + other_z.size // 2) - zy) < 100:
                     other_z.health -= 50
                     other_z.hit_flash_timer = pygame.time.get_ticks()
                     self.particles.add_blood(other_z.x, other_z.y, 10)
                     if other_z.health <= 0:
-                        self.zombies.remove(other_z)
+                        safe_remove(self.zombies, other_z)
                         self.handle_zombie_death(other_z)
 
         # Drops (host only)
@@ -1023,25 +1041,25 @@ class MultiplayerGameManager:
         for b in list(self.bullets):
             if getattr(b, "weapon_type", "normal") == "flamethrower" and b.lifetime > \
                     weapons_data["flamethrower"]["lifetime"]:
-                if b in self.bullets: self.bullets.remove(b)
+                safe_remove(self.bullets, b)
                 continue
 
             b.move()
             if b.x < 0 or b.x > self.width or b.y < 0 or b.y > self.height:
-                if b in self.bullets: self.bullets.remove(b)
+                safe_remove(self.bullets, b)
                 continue
 
             hit = False
             for obs in self.obstacles:
                 if check_collision((b.x, b.y), obs, b.size, obs[2]):
-                    self.bullets.remove(b)
+                    safe_remove(self.bullets, b)
                     hit = True
                     break
 
             if not hit:
                 for brk in list(self.breakables):
                     if check_collision((b.x, b.y), (brk.x, brk.y, brk.width, brk.height), b.size, brk.width):
-                        self.bullets.remove(b)
+                        safe_remove(self.bullets, b)
                         damage = weapons_data[self.player.current_weapon]["damage"]
                         brk.health -= damage
                         brk.hit_flash_timer = pygame.time.get_ticks()
@@ -1062,7 +1080,7 @@ class MultiplayerGameManager:
                                 continue
                             b.pierced_zombies.add(z)
                         else:
-                            if b in self.bullets: self.bullets.remove(b)
+                            safe_remove(self.bullets, b)
 
                         damage = weapons_data[self.player.current_weapon]["damage"]
                         z.health -= damage
@@ -1074,7 +1092,7 @@ class MultiplayerGameManager:
                         self.network.send_entity_damage("zombie", z.entity_id, damage, z.health)
 
                         if z.health <= 0:
-                            self.zombies.remove(z)
+                            safe_remove(self.zombies, z)
                             self.handle_zombie_death(z)
                         if getattr(b, "weapon_type", "normal") != "flamethrower":
                             break
@@ -1110,8 +1128,7 @@ class MultiplayerGameManager:
 
                 if picked_up:
                     item_id = getattr(item, "item_id", f"{item.type}_{int(item.x)}_{int(item.y)}")
-                    if item in self.items:
-                        self.items.remove(item)
+                    safe_remove(self.items, item)
                     self.network.send_item_pickup(item_id, item.x, item.y)
 
     def update_grenades(self, current_time):
@@ -1142,6 +1159,8 @@ class MultiplayerGameManager:
 
                 # Kill zombies within radius
                 for z in list(self.zombies):
+                    if z not in self.zombies:
+                        continue
                     zx = z.x + z.size // 2
                     zy = z.y + z.size // 2
                     dist = math.hypot(zx - g.x, zy - g.y)
@@ -1153,10 +1172,10 @@ class MultiplayerGameManager:
                         self.particles.add_floating_text(zx, zy - 10, str(damage), (255, 100, 100))
                         self.network.send_entity_damage("zombie", z.entity_id, damage, z.health)
                         if z.health <= 0:
-                            self.zombies.remove(z)
+                            safe_remove(self.zombies, z)
                             self.handle_zombie_death(z)
             if not g.active:
-                self.grenades.remove(g)
+                safe_remove(self.grenades, g)
 
     def update_sentries(self, current_time):
         for s in list(self.sentries_deployed):
@@ -1169,7 +1188,7 @@ class MultiplayerGameManager:
                 self.particles.add_casing(s.x, s.y, s.angle)
                 self.particles.add_muzzle_flash(s.x + dx * s.size, s.y + dy * s.size, s.angle)
             if s.ammo <= 0:
-                self.sentries_deployed.remove(s)
+                safe_remove(self.sentries_deployed, s)
                 self.particles.add_blood(s.x, s.y, 20, color=(100, 100, 100))
 
     # ================================================================
@@ -1491,6 +1510,45 @@ class MultiplayerGameManager:
                     self.network.disconnect()
                     pygame.quit()
                     sys.exit()
+
+                # Mouse interaction when paused or confirming exit
+                if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                    m_x, m_y = event.pos
+                    if self.is_paused:
+                        panel_w, panel_h = 440, 240
+                        panel_x = self.width // 2 - panel_w // 2
+                        panel_y = self.height // 2 - panel_h // 2
+                        if self.is_host:
+                            btn_resume = pygame.Rect(panel_x + 35, panel_y + 155, 170, 44)
+                            btn_leave = pygame.Rect(panel_x + 235, panel_y + 155, 170, 44)
+                            if btn_resume.collidepoint(m_x, m_y):
+                                self.is_paused = False
+                                self.network.send_game_pause(False)
+                                pygame.mouse.set_visible(False)
+                            elif btn_leave.collidepoint(m_x, m_y):
+                                self.network.leave_room()
+                                pygame.mouse.set_visible(True)
+                                return "main_menu"
+                        else:
+                            btn_leave = pygame.Rect(self.width // 2 - 95, panel_y + 155, 190, 44)
+                            if btn_leave.collidepoint(m_x, m_y):
+                                self.network.leave_room()
+                                pygame.mouse.set_visible(True)
+                                return "main_menu"
+                    elif self.show_exit_confirm:
+                        panel_w, panel_h = 420, 190
+                        panel_x = self.width // 2 - panel_w // 2
+                        panel_y = self.height // 2 - panel_h // 2
+                        btn_yes = pygame.Rect(panel_x + 35, panel_y + 120, 165, 42)
+                        btn_no = pygame.Rect(panel_x + 220, panel_y + 120, 165, 42)
+                        if btn_yes.collidepoint(m_x, m_y):
+                            self.network.leave_room()
+                            pygame.mouse.set_visible(True)
+                            return "main_menu"
+                        elif btn_no.collidepoint(m_x, m_y):
+                            self.show_exit_confirm = False
+                            pygame.mouse.set_visible(False)
+
                 if event.type == pygame.KEYDOWN:
                     if self.is_chatting:
                         if event.key == pygame.K_ESCAPE:
@@ -1513,16 +1571,31 @@ class MultiplayerGameManager:
                             self.is_chatting = True
                             self.chat_input = ""
                             self.player.is_sprinting = False
+                        elif event.key == pygame.K_p:
+                            if self.is_host:
+                                self.is_paused = not self.is_paused
+                                self.network.send_game_pause(self.is_paused)
+                                pygame.mouse.set_visible(self.is_paused)
+                            else:
+                                self.particles.add_floating_text(
+                                    self.player.x, self.player.y - 30,
+                                    "Sadece oda sahibi oyunu duraklatabilir!",
+                                    (255, 200, 80)
+                                )
                         elif event.key == pygame.K_ESCAPE:
-                            self.network.leave_room()
-                            pygame.mouse.set_visible(True)
-                            return "main_menu"
-                        elif event.key == pygame.K_r and self.player.current_weapon == "pistol":
+                            if self.is_host:
+                                self.is_paused = not self.is_paused
+                                self.network.send_game_pause(self.is_paused)
+                                pygame.mouse.set_visible(self.is_paused)
+                            else:
+                                self.show_exit_confirm = not self.show_exit_confirm
+                                pygame.mouse.set_visible(self.show_exit_confirm or self.is_paused)
+                        elif event.key == pygame.K_r and self.player.current_weapon == "pistol" and not self.is_paused:
                             wp = weapons_data[self.player.current_weapon]
                             if self.player.bullets_in_magazine < wp["max_ammo"]:
                                 assets.channels['reload'].play(assets.sounds['reload'])
                                 self.player.bullets_in_magazine = wp["max_ammo"]
-                        elif event.key == pygame.K_t:
+                        elif event.key == pygame.K_t and not self.is_paused:
                             if self.player.sentries > 0:
                                 self.player.sentries -= 1
                                 center_x = self.player.x + PLAYER_SIZE // 2
@@ -1530,8 +1603,13 @@ class MultiplayerGameManager:
                                 self.sentries_deployed.append(SentryGun(center_x, center_y))
                                 self.network.send_sentry_place(center_x, center_y)
 
+            # Check if kicked while in game
+            if getattr(self, "kicked", False):
+                pygame.mouse.set_visible(True)
+                return "kicked"
+
             # Check team wipe if spectating
-            if getattr(self, "is_spectating", False):
+            if getattr(self, "is_spectating", False) and not self.is_paused:
                 if not any(rp.is_alive for rp in self.remote_players.values()):
                     self.game_over = True
                     self.is_spectating = False
@@ -1540,8 +1618,10 @@ class MultiplayerGameManager:
             if self.game_over:
                 pygame.mouse.set_visible(True)
                 update_discord_presence(wave=self.wave, zombies_killed=self.total_kills, game_state="MP Game Over")
-                res = self.menu.show_game_over(self.surface, self.wave, self.total_kills)
-                if res == "main_menu":
+                res = self.menu.show_game_over(self.surface, self.wave, self.total_kills, is_multiplayer=True)
+                if res == "lobby":
+                    return "lobby"
+                elif res == "main_menu":
                     self.network.leave_room()
                     return "main_menu"
                 elif res == "quit":
@@ -1550,47 +1630,130 @@ class MultiplayerGameManager:
                     pygame.quit()
                     sys.exit()
 
-            # Handle Knife Swing state
-            if self.player.knife_swing:
-                if pygame.time.get_ticks() - self.player.knife_start_time > weapons_data["knife"]["swing_duration"]:
-                    self.player.knife_swing = False
+            # Active game simulation updates (only when not paused)
+            if not self.is_paused:
+                # Handle Knife Swing state
+                if self.player.knife_swing:
+                    if pygame.time.get_ticks() - self.player.knife_start_time > weapons_data["knife"]["swing_duration"]:
+                        self.player.knife_swing = False
 
-            # Wave management (host only)
-            if self.is_host:
-                if len(self.zombies) == 0 and self.zombies_killed_in_wave >= self.zombies_required:
-                    self.wave += 1
-                    self.zombies_killed_in_wave = 0
-                    self.zombies_required = int(self.zombies_required * 1.5)
-                    self.menu.start_wave_transition(self.wave)
-                    self.spawn_wave()
-                    self.spawn_wave_items()
-                    self.network.send_wave_change(self.wave, self.zombies_required)
-                    # Respawn host if spectating
-                    if getattr(self, "is_spectating", False):
-                        self.is_spectating = False
-                        self.game_over = False
-                        self.player.health = MAX_PLAYER_HEALTH
-                        self.player.stamina = MAX_PLAYER_STAMINA
-                        self.player.stamina_exhausted = False
-                        self.player.x = self.width // 2
-                        self.player.y = self.height // 2
-                        self.particles.add_floating_text(self.player.x, self.player.y, "CANLANDIN!", (100, 255, 100))
-                elif len(self.zombies) < 5:
-                    self.spawn_wave()
+                # Wave management (host only)
+                if self.is_host:
+                    if len(self.zombies) == 0 and self.zombies_killed_in_wave >= self.zombies_required:
+                        self.wave += 1
+                        self.zombies_killed_in_wave = 0
+                        self.zombies_required = int(self.zombies_required * 1.5)
+                        self.menu.start_wave_transition(self.wave)
+                        self.spawn_wave()
+                        self.spawn_wave_items()
+                        self.network.send_wave_change(self.wave, self.zombies_required)
+                        # Respawn host if spectating
+                        if getattr(self, "is_spectating", False):
+                            self.is_spectating = False
+                            self.game_over = False
+                            self.player.health = MAX_PLAYER_HEALTH
+                            self.player.stamina = MAX_PLAYER_STAMINA
+                            self.player.stamina_exhausted = False
+                            self.player.x = self.width // 2
+                            self.player.y = self.height // 2
+                            self.particles.add_floating_text(self.player.x, self.player.y, "CANLANDIN!", (100, 255, 100))
+                    elif len(self.zombies) < 5:
+                        self.spawn_wave()
 
-            self.update_sentries(current_time)
-            if not getattr(self, "is_spectating", False):
-                self.handle_input(dt, dt_factor)
-                self.handle_shooting(pygame.mouse.get_pos())
-            self.update_zombies(dt_factor)
-            self.update_bullets()
-            self.update_grenades(current_time)
-            self.update_items()
+                self.update_sentries(current_time)
+                if not getattr(self, "is_spectating", False):
+                    self.handle_input(dt, dt_factor)
+                    self.handle_shooting(pygame.mouse.get_pos())
+                self.update_zombies(dt_factor)
+                self.update_bullets()
+                self.update_grenades(current_time)
+                self.update_items()
 
-            # Send local state
-            self.send_local_state()
+                # Send local state
+                self.send_local_state()
 
             update_discord_presence(wave=self.wave, zombies_killed=self.total_kills, game_state="Multiplayer")
 
             self.draw()
+            if self.is_paused:
+                self._draw_pause_overlay()
+            elif self.show_exit_confirm:
+                self._draw_exit_confirm()
+
             pygame.display.flip()
+
+    def _draw_pause_overlay(self):
+        """Draw the multiplayer pause glass panel overlay."""
+        overlay = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 160))
+        self.surface.blit(overlay, (0, 0))
+
+        panel_w, panel_h = 440, 240
+        panel_x = self.width // 2 - panel_w // 2
+        panel_y = self.height // 2 - panel_h // 2
+        HUD(self.width, self.height).draw_glass_panel(self.surface, (panel_x, panel_y, panel_w, panel_h))
+
+        # Title
+        title_surf = assets.fonts['large'].render("OYUN DURAKLATILDI", True, (255, 215, 0))
+        self.surface.blit(title_surf, (self.width // 2 - title_surf.get_width() // 2, panel_y + 25))
+
+        # Subtitle
+        if self.is_host:
+            sub_text = "Oda sahibi olarak oyunu duraklattınız."
+            sub_color = (200, 220, 255)
+        else:
+            sub_text = "Oda sahibinin devam ettirmesi bekleniyor..."
+            sub_color = (180, 190, 210)
+        sub_surf = assets.fonts['normal'].render(sub_text, True, sub_color)
+        self.surface.blit(sub_surf, (self.width // 2 - sub_surf.get_width() // 2, panel_y + 85))
+
+        # Buttons
+        if self.is_host:
+            btn_resume = pygame.Rect(panel_x + 35, panel_y + 155, 170, 44)
+            btn_leave = pygame.Rect(panel_x + 235, panel_y + 155, 170, 44)
+
+            pygame.draw.rect(self.surface, (30, 140, 60), btn_resume, border_radius=6)
+            pygame.draw.rect(self.surface, (60, 230, 100), btn_resume, 1, border_radius=6)
+            r_txt = assets.fonts['normal'].render("Devam Et (P)", True, WHITE)
+            self.surface.blit(r_txt, (btn_resume.centerx - r_txt.get_width() // 2, btn_resume.centery - r_txt.get_height() // 2))
+
+            pygame.draw.rect(self.surface, (90, 35, 35), btn_leave, border_radius=6)
+            pygame.draw.rect(self.surface, (180, 60, 60), btn_leave, 1, border_radius=6)
+            l_txt = assets.fonts['normal'].render("Odadan Ayrıl", True, WHITE)
+            self.surface.blit(l_txt, (btn_leave.centerx - l_txt.get_width() // 2, btn_leave.centery - l_txt.get_height() // 2))
+        else:
+            btn_leave = pygame.Rect(self.width // 2 - 95, panel_y + 155, 190, 44)
+            pygame.draw.rect(self.surface, (90, 35, 35), btn_leave, border_radius=6)
+            pygame.draw.rect(self.surface, (180, 60, 60), btn_leave, 1, border_radius=6)
+            l_txt = assets.fonts['normal'].render("Odadan Ayrıl", True, WHITE)
+            self.surface.blit(l_txt, (btn_leave.centerx - l_txt.get_width() // 2, btn_leave.centery - l_txt.get_height() // 2))
+
+    def _draw_exit_confirm(self):
+        """Draw confirmation modal when client presses ESC."""
+        overlay = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 150))
+        self.surface.blit(overlay, (0, 0))
+
+        panel_w, panel_h = 420, 190
+        panel_x = self.width // 2 - panel_w // 2
+        panel_y = self.height // 2 - panel_h // 2
+        HUD(self.width, self.height).draw_glass_panel(self.surface, (panel_x, panel_y, panel_w, panel_h))
+
+        title_surf = assets.fonts['large'].render("ODADAN AYRIL", True, (255, 80, 80))
+        self.surface.blit(title_surf, (self.width // 2 - title_surf.get_width() // 2, panel_y + 20))
+
+        sub_surf = assets.fonts['normal'].render("Oyundan ayrılmak istediğinize emin misiniz?", True, (220, 220, 220))
+        self.surface.blit(sub_surf, (self.width // 2 - sub_surf.get_width() // 2, panel_y + 72))
+
+        btn_yes = pygame.Rect(panel_x + 35, panel_y + 120, 165, 42)
+        btn_no = pygame.Rect(panel_x + 220, panel_y + 120, 165, 42)
+
+        pygame.draw.rect(self.surface, (120, 35, 35), btn_yes, border_radius=6)
+        pygame.draw.rect(self.surface, (220, 60, 60), btn_yes, 1, border_radius=6)
+        y_txt = assets.fonts['normal'].render("Evet, Ayrıl", True, WHITE)
+        self.surface.blit(y_txt, (btn_yes.centerx - y_txt.get_width() // 2, btn_yes.centery - y_txt.get_height() // 2))
+
+        pygame.draw.rect(self.surface, (40, 50, 65), btn_no, border_radius=6)
+        pygame.draw.rect(self.surface, (80, 110, 140), btn_no, 1, border_radius=6)
+        n_txt = assets.fonts['normal'].render("İptal (ESC)", True, WHITE)
+        self.surface.blit(n_txt, (btn_no.centerx - n_txt.get_width() // 2, btn_no.centery - n_txt.get_height() // 2))

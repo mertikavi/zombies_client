@@ -22,6 +22,8 @@ class PlayerConnection:
     websocket: WebSocket
     room_id: Optional[str] = None
     is_host: bool = False
+    ready_state: str = "Hazır"  # "Hazır", "Oyunda"
+    join_index: int = 1
 
 
 @dataclass
@@ -36,6 +38,8 @@ class Room:
     created_at: float = field(default_factory=time.time)
     max_players: int = 4
     map_seed: Optional[int] = None
+    banned_player_ids: Set[str] = field(default_factory=set)
+    next_join_index: int = 1
 
 
 # Global state
@@ -62,17 +66,20 @@ async def broadcast_to_room(room_id: str, data: dict, exclude_player_id: str = N
 
 
 async def broadcast_room_update(room_id: str):
-    """Send updated player list to all players in the room."""
+    """Send updated player list to all players in the room, ordered by join index."""
     room = rooms.get(room_id)
     if not room:
         return
     player_list = [
         {
+            "id": p.player_id,
             "player_id": p.player_id,
             "player_name": p.player_name,
-            "is_host": p.is_host
+            "is_host": p.is_host,
+            "ready_state": p.ready_state,
+            "join_index": p.join_index
         }
-        for p in room.players.values()
+        for p in sorted(room.players.values(), key=lambda x: x.join_index)
     ]
     await broadcast_to_room(room_id, {
         "type": "room_update",
@@ -127,13 +134,16 @@ async def handle_create_room(player: PlayerConnection, data: dict):
     player.player_name = player_name
     player.room_id = room_id
     player.is_host = True
+    player.ready_state = "Hazır"
+    player.join_index = 1
 
     room = Room(
         room_id=room_id,
         room_name=room_name,
         password=password if password else None,
         host_id=player.player_id,
-        players={player.player_id: player}
+        players={player.player_id: player},
+        next_join_index=2
     )
     rooms[room_id] = room
 
@@ -160,6 +170,13 @@ async def handle_join_room(player: PlayerConnection, data: dict):
         await send_json(player.websocket, {
             "type": "error",
             "message": "Oda bulunamadı."
+        })
+        return
+
+    if player.player_id in room.banned_player_ids:
+        await send_json(player.websocket, {
+            "type": "error",
+            "message": "Bu odadan atıldınız, tekrar katılamazsınız."
         })
         return
 
@@ -191,6 +208,9 @@ async def handle_join_room(player: PlayerConnection, data: dict):
     player.player_name = player_name
     player.room_id = room_id
     player.is_host = False
+    player.ready_state = "Hazır"
+    player.join_index = room.next_join_index
+    room.next_join_index += 1
     room.players[player.player_id] = player
 
     await send_json(player.websocket, {
@@ -278,18 +298,33 @@ async def handle_start_game(player: PlayerConnection, data: dict):
         })
         return
 
+    # Check if all players are ready ("Hazır")
+    not_ready = [p for p in room.players.values() if p.ready_state != "Hazır"]
+    if not_ready:
+        await send_json(player.websocket, {
+            "type": "error",
+            "message": f"Tüm oyuncular hazır olmadan oyun başlatılamaz! ({len(not_ready)} oyuncu oyunda)"
+        })
+        return
+
     import random
     room.map_seed = data.get("map_seed", random.randint(0, 999999))
     room.game_started = True
+
+    # Mark all players as "Oyunda"
+    for p in room.players.values():
+        p.ready_state = "Oyunda"
 
     # Build player info list for all clients
     player_info = [
         {
             "player_id": p.player_id,
             "player_name": p.player_name,
-            "is_host": p.is_host
+            "is_host": p.is_host,
+            "join_index": p.join_index,
+            "ready_state": p.ready_state
         }
-        for p in room.players.values()
+        for p in sorted(room.players.values(), key=lambda x: x.join_index)
     ]
 
     await broadcast_to_room(room_id, {
@@ -297,9 +332,79 @@ async def handle_start_game(player: PlayerConnection, data: dict):
         "map_seed": room.map_seed,
         "players": player_info
     })
+    await broadcast_room_update(room_id)
     await broadcast_room_list()
 
     print(f"[SERVER] Game started in room {room.room_name} ({room_id}) with seed {room.map_seed}")
+
+
+async def handle_return_to_lobby(player: PlayerConnection):
+    """Handle a player returning to the lobby from game over / match."""
+    room_id = player.room_id
+    if not room_id or room_id not in rooms:
+        return
+    room = rooms[room_id]
+    player.ready_state = "Hazır"
+
+    # If all players are back in lobby, set room.game_started = False
+    if all(p.ready_state == "Hazır" for p in room.players.values()):
+        room.game_started = False
+
+    await broadcast_room_update(room_id)
+    await broadcast_room_list()
+    print(f"[SERVER] {player.player_name} returned to lobby in room {room.room_name}")
+
+
+async def handle_kick_player(player: PlayerConnection, data: dict):
+    """Handle host kicking a player from room."""
+    room_id = player.room_id
+    if not room_id or room_id not in rooms:
+        return
+    room = rooms[room_id]
+    if not player.is_host:
+        await send_json(player.websocket, {
+            "type": "error",
+            "message": "Sadece oda sahibi oyuncu atabilir."
+        })
+        return
+
+    target_id = data.get("target_player_id")
+    if not target_id or target_id not in room.players:
+        return
+    target = room.players[target_id]
+    if target.is_host:
+        return
+
+    # Add to room banned list so they cannot rejoin
+    room.banned_player_ids.add(target.player_id)
+    kicked_name = target.player_name
+
+    # Remove from room
+    del room.players[target_id]
+    target.room_id = None
+    target.is_host = False
+    target.ready_state = "Hazır"
+
+    # Send kicked event to target
+    await send_json(target.websocket, {
+        "type": "kicked",
+        "message": "Oda sahibi tarafından odadan atıldınız."
+    })
+
+    # Broadcast player left to remaining players in room
+    await broadcast_to_room(room_id, {
+        "type": "player_left",
+        "player_id": target.player_id,
+        "player_name": kicked_name
+    })
+
+    # If all remaining players are Hazır, reset game_started
+    if all(p.ready_state == "Hazır" for p in room.players.values()):
+        room.game_started = False
+
+    await broadcast_room_update(room_id)
+    await broadcast_room_list()
+    print(f"[SERVER] {kicked_name} was kicked from room {room.room_name} by {player.player_name}")
 
 
 async def handle_game_message(player: PlayerConnection, data: dict):
@@ -350,6 +455,10 @@ async def websocket_endpoint(websocket: WebSocket):
                 await handle_join_room(player, data)
             elif msg_type == "leave_room":
                 await handle_leave_room(player)
+            elif msg_type == "return_to_lobby":
+                await handle_return_to_lobby(player)
+            elif msg_type == "kick_player":
+                await handle_kick_player(player, data)
             elif msg_type == "list_rooms":
                 await handle_list_rooms(player)
             elif msg_type == "start_game":
@@ -364,7 +473,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 "entity_kill", "player_action", "grenade_throw",
                 "sentry_place", "game_state", "wave_change",
                 "item_pickup", "chat", "zombie_sync", "entity_damage",
-                "game_over", "item_sync"
+                "game_over", "item_sync", "game_pause"
             ):
                 await handle_game_message(player, data)
             else:

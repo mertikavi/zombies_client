@@ -150,7 +150,11 @@ def _handle_multiplayer(screen, width, height, menu):
             if result == "main_menu":
                 network.disconnect()
                 return
-            # Otherwise loop back to multiplayer menu
+            elif result == "kicked":
+                network.room_id = None
+                network.is_host = False
+                continue
+            # If result == "lobby", keep connection and room_id intact to seamlessly re-enter lobby!
 
 
 if __name__ == "__main__":

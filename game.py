@@ -4,7 +4,7 @@ import math
 import sys
 from config import *
 from assets import assets
-from utils import check_collision, check_player_collision_with_obstacles, draw_crosshair, update_discord_presence, get_shadow_surface
+from utils import check_collision, check_player_collision_with_obstacles, draw_crosshair, update_discord_presence, get_shadow_surface, safe_remove
 from entities import Player, Zombie, Bullet, Item, Grenade, BreakableProp, Pet, SentryGun
 from ui import HUD, Menu
 from particles import ParticleSystem
@@ -185,8 +185,8 @@ class GameManager:
         if attacked_zombie:
             self.particles.add_floating_text(attacked_zombie.x, attacked_zombie.y - 10, str(self.pet.damage), (200, 200, 255))
             self.particles.add_blood(attacked_zombie.x + attacked_zombie.size//2, attacked_zombie.y + attacked_zombie.size//2, 5)
-            if attacked_zombie.health <= 0 and attacked_zombie in self.zombies:
-                self.zombies.remove(attacked_zombie)
+            if attacked_zombie.health <= 0:
+                safe_remove(self.zombies, attacked_zombie)
                 self.handle_zombie_death(attacked_zombie)
         
         # Dash Logic
@@ -326,7 +326,7 @@ class GameManager:
                     self.particles.add_blood(zx, zy, 15)
                     self.particles.add_floating_text(zx, zy - 10, str(damage), (255, 255, 255))
                     if z.health <= 0:
-                        self.zombies.remove(z)
+                        safe_remove(self.zombies, z)
                         self.handle_zombie_death(z)      
         if hit:
             assets.channels['knife_damage'].play(assets.sounds['knife_damage'])
@@ -353,12 +353,14 @@ class GameManager:
             
             # Zombie damage
             for other_z in list(self.zombies):
+                if other_z not in self.zombies:
+                    continue
                 if math.hypot((other_z.x + other_z.size//2) - zx, (other_z.y + other_z.size//2) - zy) < 100:
                     other_z.health -= 50
                     other_z.hit_flash_timer = pygame.time.get_ticks()
                     self.particles.add_blood(other_z.x, other_z.y, 10)
                     if other_z.health <= 0:
-                        self.zombies.remove(other_z)
+                        safe_remove(self.zombies, other_z)
                         self.handle_zombie_death(other_z)
         
         # Drops
@@ -433,25 +435,25 @@ class GameManager:
     def update_bullets(self):
         for b in list(self.bullets):
             if getattr(b, "weapon_type", "normal") == "flamethrower" and b.lifetime > weapons_data["flamethrower"]["lifetime"]:
-                if b in self.bullets: self.bullets.remove(b)
+                safe_remove(self.bullets, b)
                 continue
                 
             b.move()
             if b.x < 0 or b.x > self.width or b.y < 0 or b.y > self.height:
-                if b in self.bullets: self.bullets.remove(b)
+                safe_remove(self.bullets, b)
                 continue
                 
             hit = False
             for obs in self.obstacles:
                 if check_collision((b.x, b.y), obs, b.size, obs[2]):
-                    self.bullets.remove(b)
+                    safe_remove(self.bullets, b)
                     hit = True
                     break
                     
             if not hit:
                 for brk in list(self.breakables):
                     if check_collision((b.x, b.y), (brk.x, brk.y, brk.width, brk.height), b.size, brk.width):
-                        self.bullets.remove(b)
+                        safe_remove(self.bullets, b)
                         damage = weapons_data[self.player.current_weapon]["damage"]
                         brk.health -= damage
                         brk.hit_flash_timer = pygame.time.get_ticks()
@@ -461,7 +463,7 @@ class GameManager:
                             if random.random() < 0.3:
                                 drop_types = ['health', 'stamina', 'ak47', 'shotgun']
                                 self.items.append(Item(brk.x + brk.width//2, brk.y + brk.height//2, random.choice(drop_types)))
-                            self.breakables.remove(brk)
+                            safe_remove(self.breakables, brk)
                         hit = True
                         break
             
@@ -473,7 +475,7 @@ class GameManager:
                                 continue
                             b.pierced_zombies.add(z)
                         else:
-                            if b in self.bullets: self.bullets.remove(b)
+                            safe_remove(self.bullets, b)
                             
                         damage = weapons_data[self.player.current_weapon]["damage"]
                         z.health -= damage
@@ -481,7 +483,7 @@ class GameManager:
                         self.particles.add_blood(z.x + z.size//2, z.y + z.size//2, 5)
                         self.particles.add_floating_text(z.x + z.size//2, z.y, str(damage), (255, 255, 255))
                         if z.health <= 0:
-                            self.zombies.remove(z)
+                            safe_remove(self.zombies, z)
                             self.handle_zombie_death(z)
                         if getattr(b, "weapon_type", "normal") != "flamethrower":
                             break
@@ -493,25 +495,25 @@ class GameManager:
                 if item.type == 'health':
                     self.player.health = min(MAX_PLAYER_HEALTH, self.player.health + diff["health_kit_heal"])
                     assets.channels['health'].play(assets.sounds['health'])
-                    self.items.remove(item)
+                    safe_remove(self.items, item)
                 elif item.type == 'stamina':
                     self.player.stamina = min(MAX_PLAYER_STAMINA, self.player.stamina + diff["stamina_pack_boost"])
                     assets.channels['health'].play(assets.sounds['health'])
-                    self.items.remove(item)
+                    safe_remove(self.items, item)
                 elif item.type == 'grenade':
                     if self.player.grenades < self.player.max_grenades:
                         self.player.grenades += 1
                         assets.channels['reload'].play(assets.sounds['reload'])
-                        self.items.remove(item)
+                        safe_remove(self.items, item)
                 elif item.type == 'sentry':
                     if self.player.sentries < self.player.max_sentries:
                         self.player.sentries += 1
                         assets.channels['reload'].play(assets.sounds['reload'])
-                        self.items.remove(item)
+                        safe_remove(self.items, item)
                 else: # Weapon
                     self.player.pickup_weapon(item.type)
                     assets.channels['reload'].play(assets.sounds['reload'])
-                    self.items.remove(item)
+                    safe_remove(self.items, item)
 
     def update_grenades(self, current_time):
         for g in list(self.grenades):
@@ -539,11 +541,13 @@ class GameManager:
                             drop_types = ['health', 'stamina', 'ak47', 'shotgun']
                             self.items.append(Item(brk.x + brk.width//2, brk.y + brk.height//2, random.choice(drop_types)))
                         self.particles.add_blood(brk_cx, brk_cy, 15, color=(139, 69, 19))
-                        self.breakables.remove(brk)
+                        safe_remove(self.breakables, brk)
                         assets.channels['knife_damage'].play(assets.sounds['knife_damage'])
                 
                 # Kill all zombies within radius
                 for z in list(self.zombies):
+                    if z not in self.zombies:
+                        continue
                     zx = z.x + z.size//2
                     zy = z.y + z.size//2
                     dist = math.hypot(zx - g.x, zy - g.y)
@@ -554,10 +558,10 @@ class GameManager:
                         self.particles.add_blood(zx, zy, 25)
                         self.particles.add_floating_text(zx, zy - 10, str(damage), (255, 100, 100))
                         if z.health <= 0:
-                            self.zombies.remove(z)
+                            safe_remove(self.zombies, z)
                             self.handle_zombie_death(z)
             if not g.active:
-                self.grenades.remove(g)
+                safe_remove(self.grenades, g)
 
     def update_sentries(self, current_time):
         for s in list(self.sentries_deployed):
@@ -572,7 +576,7 @@ class GameManager:
                 self.particles.add_casing(s.x, s.y, s.angle)
                 self.particles.add_muzzle_flash(s.x + dx*s.size, s.y + dy*s.size, s.angle)
             if s.ammo <= 0:
-                self.sentries_deployed.remove(s)
+                safe_remove(self.sentries_deployed, s)
                 self.particles.add_blood(s.x, s.y, 20, color=(100, 100, 100)) # Explosion dust
 
     def draw_grid(self, surface):
@@ -742,7 +746,7 @@ class GameManager:
                     pygame.quit()
                     sys.exit()
                 if event.type == pygame.KEYDOWN:
-                    if event.key == pygame.K_ESCAPE:
+                    if event.key in (pygame.K_ESCAPE, pygame.K_p):
                         self.is_paused = not self.is_paused
                     if event.key == pygame.K_r and self.player.current_weapon == "pistol":
                         # Reload only pistol
